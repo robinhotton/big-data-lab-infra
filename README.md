@@ -59,6 +59,26 @@ La stack tient dans 6 conteneurs Docker et 4 volumes nommés :
 - **Pas de LLM local** : Gemini/Mistral via API web ou Colab, jamais en local.
 - **Pas de Postgres métier** : les données vivent dans MinIO (Parquet). Postgres ne sert qu'à Airflow.
 
+### Données : pourquoi génératif (et pas un dossier `seed/`)
+
+Les 5 datasets sont **générés à l'exécution** par `setup_datasets.py` (RNG seedé) plutôt que stockés en fichiers statiques dans le dépôt — contrairement au pattern `seed/*.sql` d'autres projets Airflow.
+
+| Dataset | Taille | Statique dans git ? |
+| --- | --- | --- |
+| `weather_2025.csv` | ~120 Ko | ✅ |
+| `yellow_tripdata_sample.parquet` | ~3 Mo | ✅ (limite) |
+| `orders_2026-03-*.json` (31 fichiers) | ~1,5 Mo | ✅ |
+| **`transactions_2026-03-*.csv`** (8 × 500k) | **~242 Mo** | ❌ |
+| **`yellow_tripdata_2023-01.parquet`** (réel NYC) | **~45 Mo** | ❌ |
+
+Pourquoi on génère plutôt que committer :
+
+- **242 Mo en git = clone injuriable.** Chaque apprenant télécharge tout l'historique à chaque clone. Git LFS (quota gratuit 1 Go stockage + 1 Go bandwidth/mois) sature dès quelques sessions.
+- **Reproductible et idempotent.** Le RNG est seedé → deux étudiants obtiennent des données identiques (comparables en TP). Rejouer `setup_datasets.py` écrase sans doublon.
+- **0 dépendance Internet** pour 4 datasets sur 5. Seul le taxi full (~45 Mo, réel NYC TLC) se télécharge — et il est optionnel (`--skip-taxi-full`).
+
+> Le pattern `seed/` (fichiers statiques injectés au démarrage) marche pour des données réelles et petites (~50 Ko). Ici les volumes et la nature synthétique l'imposent : `setup_datasets.py` est notre **seed programmatique**.
+
 ---
 
 ## Démarrage rapide
