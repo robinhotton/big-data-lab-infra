@@ -1,13 +1,17 @@
-# Plan B — Déploiement Local
+# Déploiement Local — Guide détaillé
 
-> À utiliser si la connexion à Hidora est impossible (réseau limité, problème serveur).
-> La stack tourne entièrement sur votre machine : MinIO + Airflow via Docker, AWS CLI en local.
+La stack tourne entièrement sur votre machine : MinIO + Airflow via Docker, AWS CLI en local.
+C'est le mode de fonctionnement normal — chaque apprenant lance sa propre stack.
+
+> Pour le démarrage en une commande, voir le `README.md` (`bash start.sh`).
+> Ce document détaille les étapes manuelles et la configuration AWS CLI.
 
 ---
 
 ## Prérequis
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) ≥ 24 installé et démarré
+- Python 3 avec `boto3 pandas pyarrow`
 - Terminal : PowerShell (Windows), Terminal (macOS/Linux)
 
 ---
@@ -19,6 +23,7 @@ Depuis la racine du dépôt :
 ```bash
 cp .env.example .env
 docker compose up -d
+docker compose run --rm minio-init   # crée le bucket data-lake + lifecycle
 ```
 
 Vérifier que tout tourne :
@@ -87,21 +92,14 @@ function s3api   { aws s3api --endpoint-url http://localhost:9000 $args }
 
 ---
 
-## 4. Créer votre bucket et charger les datasets
-
-```bash
-# Créer votre bucket (remplacez XX par votre numéro)
-s3api create-bucket --bucket data-lake-binome-XX
-
-# Vérifier
-s3minio ls
-```
-
-Charger les datasets (depuis la racine du dépôt) :
+## 4. Charger les datasets
 
 ```bash
 pip install boto3 pandas pyarrow -q
-python setup_datasets.py --endpoint http://localhost:9000 --nb-binomes 1
+python setup_datasets.py --endpoint http://localhost:9000
+
+# Vérifier que le bucket existe
+s3minio ls
 ```
 
 ---
@@ -109,7 +107,7 @@ python setup_datasets.py --endpoint http://localhost:9000 --nb-binomes 1
 ## 5. Vérifier l'accès
 
 ```bash
-s3minio ls s3://data-lake-binome-01/
+s3minio ls s3://data-lake/
 ```
 
 **Vous devriez voir** les datasets pré-chargés sous `raw/`.
@@ -123,7 +121,8 @@ s3minio ls s3://data-lake-binome-01/
 
 ## 6. Adapter les commandes du TP
 
-Dans tous les exercices, remplacez `[hidora-url]:9000` par `localhost:9000`.
+Dans les exercices qui mentionnent `[hidora-url]:9000`, remplacez par `localhost:9000`.
+Le bucket à utiliser est `data-lake` (et non `data-lake-binome-XX`).
 
 Les alias `s3minio` et `s3api` fonctionnent exactement de la même façon — seul l'endpoint change.
 

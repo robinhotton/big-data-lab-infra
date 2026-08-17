@@ -39,7 +39,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Crée les buckets data-lake-binome-01..NB_BINOMES au premier démarrage (one-shot)
+  # Crée le bucket data-lake au premier démarrage (one-shot)
   minio-init:
     image: minio/mc:latest
     depends_on:
@@ -50,17 +50,11 @@ services:
       - -c
       - |
         mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD
-        i=1
-        while [ "$$i" -le "$$NB_BINOMES" ]; do
-          bucket="local/$$(printf 'data-lake-binome-%02d' $$i)"
-          mc mb "$$bucket" --ignore-existing
-          mc ilm add --expiry-days 365 --prefix "raw/" "$$bucket"
-          i=$$((i + 1))
-        done
+        mc mb local/data-lake --ignore-existing
+        mc ilm add --expiry-days 365 --prefix "raw/" local/data-lake
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
-      NB_BINOMES: ${NB_BINOMES:-15}
 
   # ── AWS CLI ───────────────────────────────────────────────────────────────
 
@@ -133,8 +127,8 @@ services:
 
 networks:
   # Réseau nommé explicitement — indépendant du nom du dossier parent
-  # (sinon Docker nomme "<dossier>_default", et formateur-start.sh ne pourrait
-  # plus joindre MinIO via `docker run --network` après un renommage du dépôt).
+  # (sinon Docker nomme "<dossier>_default", ce qui casse les références
+  # `docker run --network` après un renommage du dépôt).
   lab-net:
     name: lab-net
 

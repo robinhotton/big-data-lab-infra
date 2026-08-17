@@ -5,18 +5,14 @@ Génère des événements de commandes JSON simulés pour mars 2026,
 répartis en 1 fichier par jour, et les uploade dans MinIO.
 
 Usage :
-    python generate_orders_dataset.py \
-        --endpoint http://[hidora-url]:9000 \
-        --access-key [ACCESS_KEY] \
-        --secret-key [SECRET_KEY] \
-        --prefix-bucket data-lake-binome  # crée data-lake-binome-01 à -07
+    python generate_orders_dataset.py
+    python generate_orders_dataset.py --endpoint http://localhost:9000 --bucket data-lake
 
 Options :
     --endpoint      URL MinIO (défaut : http://localhost:9000)
     --access-key    Access key MinIO
     --secret-key    Secret key MinIO
-    --prefix-bucket Préfixe de bucket (le script génère pour -01 à -07)
-    --single-bucket Nom exact d'un seul bucket (si fourni, ignore --prefix-bucket)
+    --bucket        Nom du bucket cible (défaut : data-lake)
     --nb-events     Nombre d'événements par jour (défaut : 1000)
     --year          Année des données (défaut : 2026)
     --month         Mois des données (défaut : 3 = mars)
@@ -104,10 +100,8 @@ def main():
     parser.add_argument("--endpoint",      default="http://localhost:9000")
     parser.add_argument("--access-key",    default="minioadmin")
     parser.add_argument("--secret-key",    default="minioadmin")
-    parser.add_argument("--prefix-bucket", default="data-lake-binome",
-                        help="Préfixe bucket — génère pour -01 à -07")
-    parser.add_argument("--single-bucket", default=None,
-                        help="Nom exact d'un seul bucket (ignore --prefix-bucket)")
+    parser.add_argument("--bucket",        default="data-lake",
+                        help="Nom du bucket cible (défaut : data-lake)")
     parser.add_argument("--nb-events",     type=int, default=1000,
                         help="Événements par jour (défaut 1000 = ~31 000 sur mars)")
     parser.add_argument("--year",  type=int, default=2026)
@@ -128,13 +122,7 @@ def main():
             aws_secret_access_key=args.secret_key,
         )
 
-    if args.single_bucket:
-        buckets = [args.single_bucket]
-    else:
-        buckets = [f"{args.prefix_bucket}-{i:02d}" for i in range(1, 8)]
-
-    for bucket in buckets:
-        generate_for_bucket(bucket, client, args)
+    generate_for_bucket(args.bucket, client, args)
 
     print("\nGénération terminée.")
     print(f"Chemin MinIO : raw/orders/{args.year}/{args.month:02d}/orders_*.json")

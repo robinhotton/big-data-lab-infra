@@ -1,29 +1,29 @@
 # Lab Infra — Formation Big Data dans le Cloud
 
-Déploiement de l'environnement lab de la formation : **MinIO** + **Airflow** + AWS CLI préconfigurés, et chargement automatique des datasets.
+Environnement lab de la formation : **MinIO** + **Airflow** + AWS CLI, et chargement automatique des datasets.
+
+Chaque apprenant lance **sa propre stack en local** — un seul bucket `data-lake`, un seul compte admin. Pas de déploiement centralisé.
 
 > Ce dépôt est le volet **infrastructure** de la formation. Les supports de cours, TP et annexes pédagogiques vivent dans le dépôt séparé [`cours-big-data-cloud`](https://github.com/robinhotton/cours-big-data-cloud).
 
 ---
 
-## Démarrage Formateur (une commande)
+## Démarrage (une commande)
 
 ```bash
 # Depuis la racine du dépôt — démarre tout et charge les datasets
-bash formateur-start.sh
+bash start.sh
 
-# Sur Hidora (remplacer l'URL et le nombre de binômes)
-bash formateur-start.sh \
-  --endpoint http://[hidora-url]:9000 \
-  --nb-binomes 7
+# Sans le dataset NYC Taxi (~45 Mo, utile si connexion limitée)
+bash start.sh --skip-taxi-full
 ```
 
 Ce script enchaîne automatiquement :
 
 1. Création du `.env` depuis `.env.example` (si absent)
 2. Démarrage de MinIO + PostgreSQL
-3. Création des buckets `data-lake-binome-01` … `data-lake-binome-07` avec lifecycle rule
-4. Chargement de tous les datasets dans chaque bucket :
+3. Création du bucket `data-lake` avec lifecycle rule (`raw/` expire après 365 j)
+4. Chargement des datasets dans le bucket :
    - `raw/sales/year=2026/month=03/transactions_2026-03-NN.csv` (8 fichiers × 500k lignes ≈ 242 Mo) — TP1
    - `raw/weather/weather_2025.csv` (365 jours × 7 stations) — TP1
    - `raw/taxi/yellow_tripdata_sample.parquet` (~3 Mo, 130k lignes, synthétique) — TP2
@@ -32,15 +32,20 @@ Ce script enchaîne automatiquement :
 5. Démarrage Airflow (webserver + scheduler)
 
 > **Idempotent** : relancements sans risque. Les fichiers existants sont écrasés,
-> les buckets existants sont conservés (`--ignore-existing`).
+> le bucket existant est conservé (`--ignore-existing`).
 >
 > **Internet requis** pour le téléchargement du taxi full (~45 Mo depuis NYC TLC).
 > Ajoutez `--skip-taxi-full` si la connexion est limitée.
 
-### Prérequis formateur
+### Prérequis
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) ≥ 24
+- Docker Compose ≥ 2.20
+- Python 3 avec `boto3 pandas pyarrow` (pour `setup_datasets.py`)
 
 ```bash
-pip install boto3 pandas pyarrow   # pour setup_datasets.py
+docker --version && docker compose version
+pip install boto3 pandas pyarrow
 ```
 
 ### Rechargement des datasets uniquement
@@ -48,7 +53,7 @@ pip install boto3 pandas pyarrow   # pour setup_datasets.py
 Si la stack tourne déjà et que vous voulez juste recharger les données :
 
 ```bash
-python setup_datasets.py --endpoint http://[hidora-url]:9000 --nb-binomes 7
+python setup_datasets.py --endpoint http://localhost:9000
 
 # Options de rechargement partiel :
 python setup_datasets.py --skip-taxi-full          # sans re-télécharger les 45 Mo
@@ -58,53 +63,34 @@ python setup_datasets.py --csv-rows 100000         # CSV réduits (développemen
 
 ---
 
-## Prérequis
-
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) ≥ 24
-- Docker Compose ≥ 2.20
-
-```bash
-docker --version && docker compose version
-```
-
----
-
-## Démarrage Rapide
+## Démarrage manuel (sans le script)
 
 ```bash
 # 1. Copier la config (une seule fois)
 cp .env.example .env
 
-# 2. Lancer tous les services
+# 2. Lancer tous les services + créer le bucket
 docker compose up -d
+docker compose run --rm minio-init
 
-# 3. Vérifier
+# 3. Charger les datasets
+python setup_datasets.py
+
+# 4. Vérifier
 docker compose ps
 ```
 
-Premier lancement : ~2 min (téléchargement des images + création des buckets).
+Premier lancement : ~2 min (téléchargement des images + création du bucket).
 
 ---
 
 ## Services & Accès
-
-### En local (Docker)
 
 | Service | URL | Identifiants par défaut |
 | --- | --- | --- |
 | MinIO — console web | <http://localhost:9001> | `minioadmin` / `minioadmin123` |
 | MinIO — API S3 | <http://localhost:9000> | — |
 | Airflow | <http://localhost:8080> | `admin` / `admin` |
-
-### Sur Hidora (lab formation)
-
-Voir `docs/connexion-hidora.md` pour les URLs et credentials apprenants.
-
-| Service | URL | Identifiants |
-| --- | --- | --- |
-| MinIO — console web | `http://[hidora-url]:9001` | `binomeXX` / `Diginamic34_` |
-| MinIO — API S3 | `http://[hidora-url]:9000` | — |
-| Airflow | `http://[hidora-url]:8080` | `binomeXX` / `Diginamic34_` |
 
 ---
 
@@ -114,11 +100,10 @@ Voir `docs/connexion-hidora.md` pour les URLs et credentials apprenants.
 | --- | --- | --- |
 | `MINIO_ROOT_USER` | `minioadmin` | Login MinIO et AWS CLI |
 | `MINIO_ROOT_PASSWORD` | `minioadmin123` | Mot de passe MinIO et AWS CLI |
-| `NB_BINOMES` | `15` | Nombre de buckets créés au démarrage |
 
-Les buckets sont nommés `data-lake-binome-01` … `data-lake-binome-XX`.
+Le bucket unique est `data-lake`.
 
-> Modifiez `.env` avant le **premier** `docker compose up` — les buckets ne sont créés qu'une fois.
+> Modifiez `.env` avant le **premier** `docker compose up` — le bucket n'est créé qu'une fois.
 > Pour recréer : `docker compose down -v && docker compose up -d`
 
 ---
@@ -156,24 +141,24 @@ function s3api   { docker compose --progress quiet run --rm awscli s3api $args }
 # Lister les buckets
 s3minio ls
 
-# Lister le contenu d'un bucket
-s3minio ls s3://data-lake-binome-01/ --recursive
+# Lister le contenu du bucket
+s3minio ls s3://data-lake/ --recursive
 
 # Uploader un fichier (depuis data/ → /data/ dans le conteneur)
-s3minio cp /data/example.csv s3://data-lake-binome-01/raw/
+s3minio cp /data/example.csv s3://data-lake/raw/
 
 # Uploader un dossier entier
-s3minio cp /data/ s3://data-lake-binome-01/raw/sales/ --recursive
+s3minio cp /data/ s3://data-lake/raw/sales/ --recursive
 
 # Métadonnées d'un objet
-s3api head-object --bucket data-lake-binome-01 --key raw/example.csv
+s3api head-object --bucket data-lake --key raw/example.csv
 
 # Activer le chiffrement SSE-AES256 (une seule ligne)
-s3api put-bucket-encryption --bucket data-lake-binome-01 --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+s3api put-bucket-encryption --bucket data-lake --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
 
 # Créer des "dossiers" (objets vides)
-s3api put-object --bucket data-lake-binome-01 --key cleansed/
-s3api put-object --bucket data-lake-binome-01 --key curated/
+s3api put-object --bucket data-lake --key cleansed/
+s3api put-object --bucket data-lake --key curated/
 
 ```
 
@@ -192,17 +177,25 @@ Pour ajouter vos propres DAGs, déposez-les dans `airflow/dags/` — ils sont d�
 
 ---
 
-## Colab → MinIO (Hidora)
+## Colab → MinIO (local)
 
 **Google Colab** : [colab.research.google.com](https://colab.research.google.com) — notebooks PySpark dans le navigateur, aucune installation requise.
+
+> Colab ne peut pas accéder à votre `localhost`. Pour connecter Colab à un MinIO local,
+> le notebook doit tourner sur la même machine — utilisez Jupyter en local à la place :
+>
+> ```bash
+> pip install jupyter pyspark -q
+> jupyter notebook
+> ```
 
 Les notebooks de TP contiennent le code de connexion complet. Les credentials à renseigner :
 
 ```python
-MINIO_ENDPOINT   = "http://[hidora-url]:9000"   # URL fournie par le formateur
+MINIO_ENDPOINT   = "http://localhost:9000"
 MINIO_ACCESS_KEY = "minioadmin"
 MINIO_SECRET_KEY = "minioadmin123"
-BUCKET           = "data-lake-binome-01"        # remplacez 01 par votre numéro
+BUCKET           = "data-lake"
 ```
 
 Test de connexion :
@@ -253,16 +246,13 @@ big-data-lab-infra/
 ├── .env.example            ← template de configuration
 ├── .env                    ← votre config locale (gitignored)
 ├── .gitignore
-├── formateur-start.sh      ← point d'entrée : démarre tout + charge datasets
-├── formateur-teardown.sh   ← arrêt + nettoyage
+├── start.sh                ← point d'entrée : démarre tout + charge datasets
 ├── setup_datasets.py       ← chargement des datasets dans MinIO
-├── sync_dags.py            ← synchronisation des DAGs
 ├── generate_orders_dataset.py
 ├── airflow/
 │   └── dags/               ← déposez vos DAGs ici
 ├── minio/
-│   └── init-buckets.sh      ← création des buckets + lifecycle
-├── setup/                  ← scripts de provisioning (users, credentials, policies)
+│   └── init-buckets.sh      ← création du bucket + lifecycle
 └── data/                   ← fichiers locaux (CSV, JSON, configs)
                                montés en /data dans le conteneur awscli
 ```
@@ -273,11 +263,12 @@ big-data-lab-infra/
 
 | Document | Description |
 | --- | --- |
-| [`docs/guide-formateur.md`](docs/guide-formateur.md) | Préparation de la formation (J-1 → fin de session) |
+| [`docs/guide-formateur.md`](docs/guide-formateur.md) | Préparation de la formation, vérifications J0 |
 | [`docs/checklist-j0.md`](docs/checklist-j0.md) | Checklist veille de session |
-| [`docs/connexion-hidora.md`](docs/connexion-hidora.md) | Endpoints Hidora, credentials apprenants |
-| [`docs/create_ssh_users.md`](docs/create_ssh_users.md) | Création des users SSH binômes |
-| [`docs/plan-b-local.md`](docs/plan-b-local.md) | Déploiement local de secours (si Hidora inaccessible) |
+| [`docs/plan-b-local.md`](docs/plan-b-local.md) | Déploiement local détaillé |
+
+> L'ancien modèle multi-utilisateur (déploiement centralisé sur Hidora, N buckets par binôme,
+> users SSH/MinIO/Airflow) est conservé dans la branche `archive/multi-user-hidora`.
 
 ---
 

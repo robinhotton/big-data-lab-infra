@@ -1,10 +1,10 @@
 """
 setup_datasets.py — Chargement des datasets de formation dans MinIO.
 
-A exécuter par le formateur après `docker compose up -d` (ou via formateur-start.sh).
+A exécuter après `docker compose up -d` (ou via start.sh).
 Idempotent : peut être relancé sans risque, les fichiers existants sont écrasés.
 
-Datasets chargés par défaut :
+Datasets chargés par défaut dans le bucket data-lake :
   TP1  raw/sales/year=2026/month=03/transactions_2026-03-NN.csv  (8 fichiers × 500k lignes)
   TP1  raw/weather/weather_2025.csv                              (365 jours × 7 stations)
   TP2  raw/taxi/yellow_tripdata_sample.parquet                   (130k lignes, synthétique)
@@ -13,14 +13,13 @@ Datasets chargés par défaut :
 
 Usage :
     python setup_datasets.py
-    python setup_datasets.py --endpoint http://[hidora-url]:9000 --nb-binomes 7
+    python setup_datasets.py --endpoint http://localhost:9000
 
 Options :
     --endpoint         URL MinIO (défaut : http://localhost:9000)
     --access-key       Access key MinIO (défaut : minioadmin)
     --secret-key       Secret key MinIO (défaut : minioadmin123)
-    --prefix-bucket    Préfixe des buckets (défaut : data-lake-binome)
-    --nb-binomes       Nombre de binômes (défaut : 7)
+    --bucket           Nom du bucket cible (défaut : data-lake)
     --nb-events        Événements orders par jour (défaut : 200)
     --csv-rows         Lignes par fichier CSV transactions (défaut : 500000)
     --skip-csv         Ne pas charger les CSV TP1
@@ -264,8 +263,8 @@ def main() -> None:
     parser.add_argument("--endpoint",       default="http://localhost:9000")
     parser.add_argument("--access-key",     default="minioadmin")
     parser.add_argument("--secret-key",     default="minioadmin123")
-    parser.add_argument("--prefix-bucket",  default="data-lake-binome")
-    parser.add_argument("--nb-binomes",     type=int, default=7)
+    parser.add_argument("--bucket",        default="data-lake",
+                        help="Nom du bucket cible (défaut : data-lake)")
     parser.add_argument("--nb-events",      type=int, default=200,
                         help="Événements orders par jour (défaut 200)")
     parser.add_argument("--csv-rows",       type=int, default=500_000,
@@ -289,7 +288,7 @@ def main() -> None:
 
     print(f"\n=== Setup datasets formation ===")
     print(f"Endpoint  : {args.endpoint}")
-    print(f"Binômes   : {args.nb_binomes}  ({args.prefix_bucket}-01 → -{args.nb_binomes:02d})")
+    print(f"Bucket    : {args.bucket}")
     print(f"Datasets  : "
           f"{'CSV(TP1) ' if not args.skip_csv else ''}"
           f"{'Taxi-sample(TP2) ' if not args.skip_taxi else ''}"
@@ -300,7 +299,7 @@ def main() -> None:
     wait_for_minio(s3)
     print("MinIO prêt.\n")
 
-    # ── Pré-génération des assets communs à tous les buckets ──────────────────
+    # ── Pré-génération des assets ─────────────────────────────────────────────
 
     taxi_sample_data = None
     if not args.skip_taxi:
@@ -313,32 +312,30 @@ def main() -> None:
         taxi_full_data = download_taxi_full()
         print()
 
-    # ── Upload par bucket ─────────────────────────────────────────────────────
+    # ── Upload dans le bucket ──────────────────────────────────────────────────
 
-    buckets = [f"{args.prefix_bucket}-{i:02d}" for i in range(1, args.nb_binomes + 1)]
+    bucket = args.bucket
+    print(f"[{bucket}]")
+    try:
+        s3.head_bucket(Bucket=bucket)
+    except ClientError:
+        print(f"  Bucket {bucket} introuvable — vérifiez que minio-init s'est exécuté.")
+        raise SystemExit(1)
 
-    for bucket in buckets:
-        print(f"[{bucket}]")
-        try:
-            s3.head_bucket(Bucket=bucket)
-        except ClientError:
-            print(f"  Bucket {bucket} introuvable — vérifiez que minio-init s'est exécuté.")
-            continue
+    if not args.skip_csv:
+        upload_csv_transactions(s3, bucket, n_files=8, rows_per_file=args.csv_rows)
+        upload_csv_weather(s3, bucket)
 
-        if not args.skip_csv:
-            upload_csv_transactions(s3, bucket, n_files=8, rows_per_file=args.csv_rows)
-            upload_csv_weather(s3, bucket)
+    if taxi_sample_data:
+        upload_taxi(s3, bucket, taxi_sample_data)
 
-        if taxi_sample_data:
-            upload_taxi(s3, bucket, taxi_sample_data)
+    if taxi_full_data:
+        upload_taxi_full(s3, bucket, taxi_full_data)
 
-        if taxi_full_data:
-            upload_taxi_full(s3, bucket, taxi_full_data)
+    if not args.skip_orders:
+        upload_orders(s3, bucket, args.nb_events)
 
-        if not args.skip_orders:
-            upload_orders(s3, bucket, args.nb_events)
-
-    print("\n=== Datasets chargés. Les apprenants peuvent commencer. ===")
+    print("\n=== Datasets chargés. Vous pouvez commencer les TP. ===")
     print(f"MinIO console : {args.endpoint.replace(':9000', ':9001')}  (minioadmin / minioadmin123)")
     print(f"Airflow UI    : {args.endpoint.replace(':9000', ':8080')}  (admin / admin)\n")
 
