@@ -24,13 +24,29 @@ def test_minio_config_reads_env(monkeypatch):
 
 
 def test_minio_config_defaults(monkeypatch):
-    """Sans env vars, MinIOConfig utilise les valeurs par défaut de lab."""
+    """Sans env vars, endpoint et bucket ont des valeurs par défaut ; les
+    credentials sont obligatoires (fail-safe : pas de fallback en clair)."""
     for var in ("MINIO_ENDPOINT", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_BUCKET"):
         monkeypatch.delenv(var, raising=False)
 
+    # endpoint/bucket : défauts non sensibles.
+    # On valide via __post_init__ partiel en posant juste les creds pour ne pas
+    # déclencher le fail-safe.
+    monkeypatch.setenv("MINIO_ACCESS_KEY", "ak")
+    monkeypatch.setenv("MINIO_SECRET_KEY", "sk")
     cfg = MinIOConfig()
     assert cfg.bucket == "data-lake"
     assert cfg.endpoint == "http://minio:9000"
+
+
+def test_minio_config_fails_without_credentials(monkeypatch):
+    """Sans credentials MinIO, MinIOConfig refuse de s'instancier (fail-safe)."""
+    for var in ("MINIO_ACCESS_KEY", "MINIO_SECRET_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    import pytest
+    with pytest.raises(RuntimeError, match="MINIO_ACCESS_KEY/MINIO_SECRET_KEY"):
+        MinIOConfig()
 
 
 def test_s3_url():
