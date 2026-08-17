@@ -71,8 +71,33 @@ fi
 # ── 4. Airflow ───────────────────────────────────────────────────────────────
 echo "[4/5] Démarrage Airflow..."
 docker compose up -d airflow-init
-echo "      Attente initialisation (30s)..."
-sleep 30
+
+echo "      Attente fin d'initialisation Airflow (db migrate + admin)..."
+# Poller l'état de airflow-init jusqu'à exit 0 (ou timeout 120s).
+# On ne peut pas juste sleep 30 : au 1er démarrage, _PIP_ADDITIONAL_REQUIREMENTS
+# rallonge l'init bien au-delà de 30s.
+DEADLINE=$(( $(date +%s) + 120 ))
+while true; do
+  STATUS=$(docker inspect -f '{{.State.Status}}' lab-airflow-init 2>/dev/null || echo "starting")
+  if [ "$STATUS" = "exited" ]; then
+    CODE=$(docker inspect -f '{{.State.ExitCode}}' lab-airflow-init 2>/dev/null || echo "1")
+    if [ "$CODE" -eq 0 ]; then
+      echo "      OK — initialisation terminée"
+      break
+    else
+      echo "      ÉCHEC — airflow-init a quitté avec le code $CODE"
+      echo "      Logs : docker compose logs airflow-init"
+      exit 1
+    fi
+  fi
+  if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+    echo "      ÉCHEC — timeout : airflow-init toujours en cours après 120s"
+    echo "      Logs : docker compose logs airflow-init"
+    exit 1
+  fi
+  sleep 3
+done
+
 docker compose up -d airflow-webserver airflow-scheduler
 echo "      OK"
 
