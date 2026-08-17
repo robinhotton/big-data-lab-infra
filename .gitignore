@@ -1,14 +1,9 @@
 # Credentials réels — ne jamais committer
 .env
 
-# Données locales (datasets TP)
+# Données locales (datasets TP, montées dans awscli)
 data/*
 !data/.gitkeep
-
-# Logs Airflow
-airflow/logs/
-logs/*
-!logs/.gitkeep
 
 # Cache
 __pycache__/

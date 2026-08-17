@@ -38,6 +38,16 @@ Les services `minio` et `airflow-webserver` doivent être en `running`.
 
 ## 2. Installer AWS CLI
 
+> ℹ️ **Deux méthodes existent pour l'alias `s3minio` :**
+> - **Recommandée (voir `README.md`)** : conteneur Docker `awscli` — zéro install,
+>   marche dès `bash start.sh`. Les chemins locaux sont en `/data/` dans le conteneur.
+> - **Alternative (ci-dessous)** : aws CLI installé en local — exécution plus
+>   rapide, chemins hôte natifs (`~/data/`), mais installe un outil supplémentaire.
+>
+> Les commandes `s3minio ls`, `s3minio cp`… sont **identiques** dans les deux cas ;
+> seul le backing change. Le README reste la référence ; cette section documente
+> l'alternative pour ceux qui préfèrent un CLI natif.
+
 ### Windows
 
 Télécharger et exécuter l'installeur MSI :
