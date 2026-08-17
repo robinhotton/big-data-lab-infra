@@ -2,12 +2,24 @@
 x-airflow-common: &airflow-common
   image: apache/airflow:2.9.3
   restart: unless-stopped
-  environment:
+  environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    # Permet `from src.config import config` depuis les DAGs
+    PYTHONPATH: /opt/airflow
+    # --- Connexion MinIO lue par airflow/src/config.py ---
+    MINIO_ENDPOINT: http://minio:9000
+    MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+    MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    MINIO_BUCKET: data-lake
+    # Dépendances Python installées au démarrage (pas de build d'image custom)
+    _PIP_ADDITIONAL_REQUIREMENTS: "boto3==1.34.162 pandas==2.2.2 pyarrow==16.1.0"
   volumes:
     - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/src:/opt/airflow/src
+    - ./data:/opt/airflow/data
   depends_on:
     postgres:
       condition: service_healthy
@@ -19,6 +31,7 @@ services:
   # Stockage objet S3-compatible — API sur :9000, console web sur :9001
   minio:
     image: minio/minio:latest
+    container_name: lab-minio
     restart: unless-stopped
     ports:
       - "9000:9000"
@@ -42,6 +55,7 @@ services:
   # Crée le bucket data-lake au premier démarrage (one-shot)
   minio-init:
     image: minio/mc:latest
+    container_name: lab-minio-init
     depends_on:
       minio:
         condition: service_healthy
@@ -79,6 +93,7 @@ services:
   # Base de données interne Airflow
   postgres:
     image: postgres:15
+    container_name: lab-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: airflow
@@ -95,6 +110,7 @@ services:
   # Initialise la base Airflow et crée l'utilisateur admin (one-shot)
   airflow-init:
     <<: *airflow-common
+    container_name: lab-airflow-init
     restart: "no"
     entrypoint: /bin/bash
     command:
@@ -111,15 +127,22 @@ services:
 
   airflow-webserver:
     <<: *airflow-common
+    container_name: lab-airflow-webserver
     ports:
       - "8080:8080"
     command: webserver
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
     depends_on:
       airflow-init:
         condition: service_completed_successfully
 
   airflow-scheduler:
     <<: *airflow-common
+    container_name: lab-airflow-scheduler
     command: scheduler
     depends_on:
       airflow-init:

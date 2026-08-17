@@ -166,14 +166,45 @@ s3api put-object --bucket data-lake --key curated/
 
 ## Airflow
 
-Un DAG d'exemple est fourni : `airflow/dags/example_pipeline.py`.
-Il simule un pipeline **Raw → Cleansed → Curated** avec 3 tâches (`extract → transform → load`).
+Deux DAGs sont fournis :
 
-Consultez l'UI : <http://localhost:8080> → onglet **DAGs** → `example_pipeline`.
+- `airflow/dags/example_pipeline.py` — DAG d'intro **illustratif** (tâches en `print`, sans I/O). Pédagogique : montre la structure d'un DAG sans complexité.
+- `airflow/dags/orders_pipeline.py` — pipeline **fonctionnel** Bronze → Silver → Gold : lit les JSON `raw/orders/` dans MinIO, nettoye/agrège, écrit `gold/` de façon idempotente.
 
-Pour ajouter vos propres DAGs, déposez-les dans `airflow/dags/` — ils sont détectés automatiquement en moins d'une minute.
+### Le vrai pipeline (`orders_pipeline`) — architecture
+
+Le code métier est **séparé du DAG** dans `airflow/src/` (testable hors Airflow) :
+
+```
+airflow/
+├── dags/
+│   ├── example_pipeline.py        ← DAG d'intro (print, illustratif)
+│   └── orders_pipeline_dag.py      ← orchestration : appelle src/
+└── src/                            ← code métier (pas d'Airflow dedans)
+    ├── config.py                  ← endpoints MinIO + chemins (dataclass)
+    ├── extract.py                 ← Bronze : JSON MinIO → Parquet staging
+    ├── transform.py                ← Silver : typage, dédup, total_price
+    └── load.py                     ← Gold : agrégation CA → MinIO (idempotent)
+```
+
+Le DAG n'est qu'une **fine couche d'orchestration** : `from src import extract, transform, load`. Les tâches communiquent via **staging Parquet** (`data/staging/`) plutôt que par XCom, adapté aux volumes pandas.
+
+> **Pourquoi `src/` ?** Le code métier est testable indépendamment d'Airflow :
+> `python -m airflow.src.extract` fonctionne hors conteneur. C'est la bonne pratique
+> (séparation orchestration / métier), utile à montrer en TP3.
+
+### Déclencher un DAG
+
+Les DAGs démarrent **en pause** (`DAGS_ARE_PAUSED_AT_CREATION: "true"`). Dans l'UI :
+
+1. <http://localhost:8080> → onglet **DAGs**
+2. Activer le DAG (bouton on/off) puis le déclencher (**Trigger DAG w/ config**)
+3. Pour `orders_pipeline`, la date logique (`ds`) détermine le fichier lu dans MinIO
 
 > `airflow-init` et `minio-init` apparaissent en `exited` dans `docker compose ps` — c'est normal, ils ne s'exécutent qu'une seule fois au démarrage.
+>
+> `_PIP_ADDITIONAL_REQUIREMENTS` (boto3, pandas, pyarrow) s'installe au premier
+> démarrage des conteneurs Airflow : prévoir ~30-60s supplémentaires la première fois.
 
 ---
 
@@ -242,19 +273,27 @@ docker compose restart airflow-webserver
 
 ```text
 big-data-lab-infra/
-├── docker-compose.yml      ← définition des services
+├── docker-compose.yml      ← définition des services (MinIO + Airflow + AWS CLI)
 ├── .env.example            ← template de configuration
 ├── .env                    ← votre config locale (gitignored)
 ├── .gitignore
 ├── start.sh                ← point d'entrée : démarre tout + charge datasets
 ├── setup_datasets.py       ← chargement des datasets dans MinIO
 ├── generate_orders_dataset.py
+├── requirements.txt        ← dépendances Python (lint / tests / local hors Docker)
 ├── airflow/
-│   └── dags/               ← déposez vos DAGs ici
+│   ├── dags/               ← DAGs (orchestration uniquement)
+│   │   ├── example_pipeline.py        ← intro illustratif (print)
+│   │   └── orders_pipeline_dag.py      ← Bronze→Silver→Gold (appelle src/)
+│   └── src/               ← code métier testable hors Airflow
+│       ├── config.py                  ← endpoints MinIO + chemins
+│       ├── extract.py                 ← Bronze : JSON MinIO → Parquet
+│       ├── transform.py               ← Silver : nettoyage + enrichissement
+│       └── load.py                    ← Gold : agrégation → MinIO
 ├── minio/
 │   └── init-buckets.sh      ← création du bucket + lifecycle
-└── data/                   ← fichiers locaux (CSV, JSON, configs)
-                               montés en /data dans le conteneur awscli
+└── data/                   ← staging Parquet + fichiers locaux
+                               (monté en /opt/airflow/data et /data)
 ```
 
 ---
