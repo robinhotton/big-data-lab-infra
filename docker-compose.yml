@@ -4,21 +4,28 @@ x-airflow-common: &airflow-common
   restart: unless-stopped
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    # Conn string construite depuis les vars Postgres du .env (pas de secret en clair)
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
     # Permet `from src.config import config` depuis les DAGs
     PYTHONPATH: /opt/airflow
     # --- Connexion MinIO lue par airflow/src/config.py ---
     MINIO_ENDPOINT: http://minio:9000
-    MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
-    MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?voir .env.example}
+    MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?voir .env.example}
     MINIO_BUCKET: data-lake
-    # Dépendances Python installées au démarrage (pas de build d'image custom)
-    _PIP_ADDITIONAL_REQUIREMENTS: "boto3==1.34.162 pandas==2.2.2 pyarrow==16.1.0"
+    # Connexion Airflow déclarée (conn_id="minio_default") — utilisée par les
+    # S3Hook du DAG d'exemple. L'image Airflow crée la connexion au démarrage.
+    AIRFLOW_CONN_MINIO_DEFAULT: "aws://$${MINIO_ROOT_USER}:$${MINIO_ROOT_PASSWORD}@?endpoint_url=http://minio:9000"
+    # Dépendances Python installées au démarrage (pas de build d'image custom).
+    # Le provider amazon (pour S3Hook) est laissé sans pin : l'image Airflow 2.9.3
+    # embarque un constraints file qui résout une version compatible.
+    _PIP_ADDITIONAL_REQUIREMENTS: "boto3==1.34.162 pandas==2.2.2 pyarrow==16.1.0 apache-airflow-providers-amazon"
   volumes:
     - ./airflow/dags:/opt/airflow/dags
     - ./airflow/src:/opt/airflow/src
+    - ./scripts:/opt/airflow/scripts:ro
     # Staging Parquet + logs Airflow en volumes nommés (pas de bind mount) :
     # évite les "Permission denied" quand l'UID airflow (50000) du conteneur
     # ne matche pas l'UID du dossier hôte (notamment sur Linux natif).
@@ -34,17 +41,17 @@ services:
 
   # Stockage objet S3-compatible — API sur :9000, console web sur :9001
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
     container_name: lab-minio
     restart: unless-stopped
     ports:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?voir .env.example}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?voir .env.example}
       # Clé KMS locale — active le chiffrement SSE-S3 (AES256) sans service externe
-      MINIO_KMS_SECRET_KEY: formation-key:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      MINIO_KMS_SECRET_KEY: ${MINIO_KMS_SECRET_KEY:?voir .env.example}
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
@@ -56,41 +63,45 @@ services:
       timeout: 5s
       retries: 5
 
-  # Crée le bucket data-lake au premier démarrage (one-shot)
+  # Crée le bucket data-lake + lifecycle au premier démarrage (one-shot)
   minio-init:
-    image: minio/mc:latest
+    image: minio/mc:RELEASE.2024-10-02T08-27-28Z
     container_name: lab-minio-init
     depends_on:
       minio:
         condition: service_healthy
-    entrypoint: /bin/sh
-    command:
-      - -c
-      - |
-        mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD
-        mc mb local/data-lake --ignore-existing
-        mc ilm add --expiry-days 365 --prefix "raw/" local/data-lake
+    entrypoint: ["/bin/sh", "/scripts/minio-init.sh"]
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
-
-  # ── AWS CLI ───────────────────────────────────────────────────────────────
-
-  # Utilisé à la demande uniquement : docker compose run --rm awscli s3 ls
-  # Les fichiers à uploader sont à placer dans ./data/ (monté en /data)
-  awscli:
-    image: amazon/aws-cli:latest
-    profiles: ["tools"]
-    entrypoint: ["aws", "--endpoint-url", "http://minio:9000"]
-    environment:
-      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
-      AWS_DEFAULT_REGION: us-east-1
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?voir .env.example}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?voir .env.example}
     volumes:
-      - ./data:/data
-    working_dir: /data
+      - ./scripts:/scripts:ro
+    networks:
+      - lab-net
+
+  # Charge les datasets de formation dans MinIO (one-shot).
+  # Activé par le profile "datasets" (COMPOSE_PROFILES=datasets dans .env).
+  # Désactivé ce profil pour démarrer la stack sans charger les données.
+  datasets-init:
+    image: python:3.11-slim
+    container_name: lab-datasets-init
+    profiles: ["datasets"]
     depends_on:
-      - minio
+      minio-init:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/sh", "/scripts/datasets-init.sh"]
+    environment:
+      # setup_datasets.py lit MINIO_ROOT_USER/PASSWORD/BUCKET et SKIP_TAXI_FULL
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?voir .env.example}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?voir .env.example}
+      MINIO_BUCKET: data-lake
+      SKIP_TAXI_FULL: ${SKIP_TAXI_FULL:-false}
+    volumes:
+      - ./setup_datasets.py:/app/setup_datasets.py:ro
+      - ./scripts:/scripts:ro
+    working_dir: /app
+    networks:
+      - lab-net
 
   # ── ORCHESTRATION ─────────────────────────────────────────────────────────
 
@@ -100,13 +111,15 @@ services:
     container_name: lab-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
+      POSTGRES_USER: ${POSTGRES_USER:?voir .env.example}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?voir .env.example}
+      POSTGRES_DB: ${POSTGRES_DB:?voir .env.example}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - lab-net
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "airflow"]
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -116,22 +129,31 @@ services:
     <<: *airflow-common
     container_name: lab-airflow-init
     restart: on-failure
-    entrypoint: /bin/bash
-    command:
-      - -c
-      - |
-        airflow db migrate
-        airflow users create \
-          --username admin \
-          --password admin \
-          --firstname Admin \
-          --lastname Formateur \
-          --role Admin \
-          --email admin@formation.local || true
+    networks:
+      - lab-net
+    entrypoint: ["/bin/bash", "/opt/airflow/scripts/airflow-init.sh"]
+    # Surcharge du bloc environment de l'anchor : la dernière clé `environment`
+    # remplace la précédente en YAML, donc on reprend ici toutes les vars de
+    # l'anchor + les credentials admin Airflow.
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      PYTHONPATH: /opt/airflow
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?voir .env.example}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?voir .env.example}
+      MINIO_BUCKET: data-lake
+      AIRFLOW_CONN_MINIO_DEFAULT: "aws://$${MINIO_ROOT_USER}:$${MINIO_ROOT_PASSWORD}@?endpoint_url=http://minio:9000"
+      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:?voir .env.example}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:?voir .env.example}
 
   airflow-webserver:
     <<: *airflow-common
     container_name: lab-airflow-webserver
+    networks:
+      - lab-net
     ports:
       - "8080:8080"
     command: webserver
@@ -147,6 +169,8 @@ services:
   airflow-scheduler:
     <<: *airflow-common
     container_name: lab-airflow-scheduler
+    networks:
+      - lab-net
     command: scheduler
     healthcheck:
       test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname $(hostname)"]

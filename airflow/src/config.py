@@ -2,7 +2,9 @@
 Config du pipeline orders — centralise endpoints MinIO, bucket et chemins.
 
 Lu via variables d'environnement (renseignées par docker-compose, ou .env en local).
-Pattern identique à agrosmart-airflow/src/config.py.
+Les valeurs sont lues dans __post_init__ (pas en valeur par défaut de champ) pour
+qu'elles soient réévaluées à chaque instanciation — nécessaire pour les tests
+(monkeypatch.setenv) et cohérent avec l'injection d'env vars par le conteneur.
 """
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,14 +13,20 @@ import os
 
 @dataclass
 class MinIOConfig:
-    """Connexion MinIO (S3-compatible)."""
-    endpoint:    str = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
-    access_key:  str = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
-    secret_key:  str = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
-    bucket:      str = os.getenv("MINIO_BUCKET", "data-lake")
+    """Connexion MinIO (S3-compatible). Lue depuis l'environnement à l'instanciation."""
+    endpoint:   str = ""
+    access_key: str = ""
+    secret_key: str = ""
+    bucket:     str = ""
 
-    @property
+    def __post_init__(self):
+        self.endpoint   = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
+        self.access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+        self.secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
+        self.bucket     = os.getenv("MINIO_BUCKET", "data-lake")
+
     def s3_url(self, key: str) -> str:
+        """Construit l'URI s3://bucket/key pour un objet donné."""
         return f"s3://{self.bucket}/{key}"
 
     def client(self):
@@ -35,8 +43,8 @@ class MinIOConfig:
 @dataclass
 class PathsConfig:
     """Chemins de staging Parquet (volume partagé monté dans le conteneur)."""
-    staging: Path = Path("/opt/airflow/data/staging")
-    reports:  Path = Path("/opt/airflow/data/reports")
+    staging: Path = field(default_factory=lambda: Path("/opt/airflow/data/staging"))
+    reports:  Path = field(default_factory=lambda: Path("/opt/airflow/data/reports"))
 
     def __post_init__(self):
         self.staging.mkdir(parents=True, exist_ok=True)
@@ -49,7 +57,9 @@ class ETLConfig:
     paths: PathsConfig  = field(default_factory=PathsConfig)
 
 
-# Instance globale — importée par extract/transform/load et le DAG
+# Instance globale — importée par extract/transform/load et le DAG.
+# Les valeurs sont figées à l'import (au démarrage du conteneur) ; pour des valeurs
+# fraîches (tests), instancier explicitement ETLConfig().
 config = ETLConfig()
 
 

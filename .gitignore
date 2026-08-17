@@ -1,13 +1,11 @@
 # Credentials réels — ne jamais committer
 .env
 
-# Données locales (datasets TP, montées dans awscli)
-data/*
-!data/.gitkeep
-
 # Cache
 __pycache__/
 *.pyc
+.ruff_cache/
+.pytest_cache/
 
 # Plans/session Claude
 .claude

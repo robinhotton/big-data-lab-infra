@@ -32,6 +32,7 @@ import argparse
 import csv
 import io
 import json
+import os
 import random
 import uuid
 from datetime import datetime, timedelta
@@ -204,22 +205,28 @@ def upload_taxi_full(s3, bucket: str, data: bytes) -> None:
 # ── TP3 — Orders e-commerce (JSON Lines) ─────────────────────────────────────
 
 def generate_orders_day(day: datetime, nb_events: int) -> str:
-    """Génère nb_events événements pour un jour donné, format JSON Lines."""
+    """Génère nb_events événements pour un jour donné, format JSON Lines.
+
+    RNG seedé par jour (42 + day) → reproductible : deux exécutions produisent
+    des event_id et valeurs identiques (comparables entre apprenants en TP).
+    """
+    rng = random.Random(42 + day.day)
     lines = []
     for _ in range(nb_events):
         ts = day.replace(
-            hour=random.randint(0, 23),
-            minute=random.randint(0, 59),
-            second=random.randint(0, 59),
+            hour=rng.randint(0, 23),
+            minute=rng.randint(0, 59),
+            second=rng.randint(0, 59),
         )
         lines.append(json.dumps({
-            "event_id":   str(uuid.uuid4()),
+            # UUID déterministe via rng.getrandbits(128) (au lieu de uuid4 aléatoire)
+            "event_id":   str(uuid.UUID(int=rng.getrandbits(128))),
             "timestamp":  ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "user_id":    random.choice(USERS),
-            "product_id": random.choice(PRODUCTS),
-            "quantity":   random.randint(1, 5),
-            "price":      random.choice(PRICES),
-            "status":     random.choice(ORDER_STATUSES),
+            "user_id":    rng.choice(USERS),
+            "product_id": rng.choice(PRODUCTS),
+            "quantity":   rng.randint(1, 5),
+            "price":      rng.choice(PRICES),
+            "status":     rng.choice(ORDER_STATUSES),
         }))
     return "\n".join(lines)
 
@@ -261,9 +268,9 @@ def wait_for_minio(s3, retries: int = 10, delay: int = 3) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Charge les datasets de formation dans MinIO.")
     parser.add_argument("--endpoint",       default="http://localhost:9000")
-    parser.add_argument("--access-key",     default="minioadmin")
-    parser.add_argument("--secret-key",     default="minioadmin123")
-    parser.add_argument("--bucket",        default="data-lake",
+    parser.add_argument("--access-key",     default=os.getenv("MINIO_ROOT_USER", "minioadmin"))
+    parser.add_argument("--secret-key",     default=os.getenv("MINIO_ROOT_PASSWORD", "minioadmin123"))
+    parser.add_argument("--bucket",        default=os.getenv("MINIO_BUCKET", "data-lake"),
                         help="Nom du bucket cible (défaut : data-lake)")
     parser.add_argument("--nb-events",      type=int, default=200,
                         help="Événements orders par jour (défaut 200)")
@@ -278,6 +285,11 @@ def main() -> None:
     parser.add_argument("--skip-orders",    action="store_true",
                         help="Ne pas charger les orders TP3")
     args = parser.parse_args()
+
+    # Plan B réseau : SKIP_TAXI_FULL=true dans l'environnement force --skip-taxi-full
+    # (lab offline, pas de téléchargement du dataset NYC TLC).
+    if os.getenv("SKIP_TAXI_FULL", "false").lower() == "true":
+        args.skip_taxi_full = True
 
     s3 = boto3.client(
         "s3",
