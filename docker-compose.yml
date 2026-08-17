@@ -1,0 +1,143 @@
+# Bloc de configuration commun aux 3 services Airflow
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9.3
+  restart: unless-stopped
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+
+  # ── STOCKAGE ──────────────────────────────────────────────────────────────
+
+  # Stockage objet S3-compatible — API sur :9000, console web sur :9001
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      # Clé KMS locale — active le chiffrement SSE-S3 (AES256) sans service externe
+      MINIO_KMS_SECRET_KEY: formation-key:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - lab-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Crée les buckets data-lake-binome-01..NB_BINOMES au premier démarrage (one-shot)
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD
+        i=1
+        while [ "$$i" -le "$$NB_BINOMES" ]; do
+          bucket="local/$$(printf 'data-lake-binome-%02d' $$i)"
+          mc mb "$$bucket" --ignore-existing
+          mc ilm add --expiry-days 365 --prefix "raw/" "$$bucket"
+          i=$$((i + 1))
+        done
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      NB_BINOMES: ${NB_BINOMES:-15}
+
+  # ── AWS CLI ───────────────────────────────────────────────────────────────
+
+  # Utilisé à la demande uniquement : docker compose run --rm awscli s3 ls
+  # Les fichiers à uploader sont à placer dans ./data/ (monté en /data)
+  awscli:
+    image: amazon/aws-cli:latest
+    profiles: ["tools"]
+    entrypoint: ["aws", "--endpoint-url", "http://minio:9000"]
+    environment:
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      AWS_DEFAULT_REGION: us-east-1
+    volumes:
+      - ./data:/data
+    working_dir: /data
+    depends_on:
+      - minio
+
+  # ── ORCHESTRATION ─────────────────────────────────────────────────────────
+
+  # Base de données interne Airflow
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Initialise la base Airflow et crée l'utilisateur admin (one-shot)
+  airflow-init:
+    <<: *airflow-common
+    restart: "no"
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate &&
+        airflow users create \
+          --username admin \
+          --password admin \
+          --firstname Admin \
+          --lastname Formateur \
+          --role Admin \
+          --email admin@formation.local
+
+  airflow-webserver:
+    <<: *airflow-common
+    ports:
+      - "8080:8080"
+    command: webserver
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+networks:
+  # Réseau nommé explicitement — indépendant du nom du dossier parent
+  # (sinon Docker nomme "<dossier>_default", et formateur-start.sh ne pourrait
+  # plus joindre MinIO via `docker run --network` après un renommage du dépôt).
+  lab-net:
+    name: lab-net
+
+volumes:
+  minio_data:
+  postgres_data:

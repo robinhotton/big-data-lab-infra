@@ -1,0 +1,14 @@
+# Credentials réels — ne jamais committer
+.env
+
+# Données locales (datasets TP)
+data/*
+!data/.gitkeep
+
+# Logs Airflow
+airflow/logs/
+
+# Cache
+__pycache__/
+*.pyc
+credentials.csv
