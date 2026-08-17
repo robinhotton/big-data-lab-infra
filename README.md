@@ -1,6 +1,6 @@
 # Lab Infra — Formation Big Data dans le Cloud
 
-Environnement lab de la formation : **MinIO** + **Airflow** + AWS CLI, et chargement automatique des datasets.
+Environnement lab de la formation : **MinIO** (stockage objet S3) + **Airflow** (orchestration), avec chargement automatique des datasets.
 
 Chaque apprenant lance **sa propre stack en local** — un seul bucket `data-lake`, un seul compte admin. Pas de déploiement centralisé.
 
@@ -8,7 +8,60 @@ Chaque apprenant lance **sa propre stack en local** — un seul bucket `data-lak
 
 ---
 
-## Démarrage (une commande)
+## Architecture
+
+La stack tient dans 6 conteneurs Docker et 4 volumes nommés :
+
+```text
+                            ┌─────────────────────────────────────┐
+                            │            Apprenant                │
+                            └───────┬───────────────┬─────────────┘
+                        Colab/Jupyter│               │ navigateur
+                                    ▼               ▼
+   ┌───────────────────────────────────────┐   ┌──────────────┐
+   │  MinIO  (lab-minio)                   │   │  Airflow UI   │
+   │  S3-compatible — :9000 (API)          │   │  :8080        │
+   │                  — :9001 (console)   │   │  webserver +  │
+   │  bucket data-lake + KMS (SSE-S3)      │◄──┤  scheduler    │
+   │  volume: minio_data                   │   │              │
+   └───────────────┬───────────────────────┘   └──────┬───────┘
+                   │ lecture/écriture orders        │ métadonnées
+                   │   (pipeline Bronze→Gold)      ▼
+                   │                          ┌──────────────┐
+                   │                          │  Postgres 16  │
+                   │                          │  (lab-postgres)│
+                   │                          │  volume:       │
+                   │                          │  postgres_data │
+                   │                          └──────────────┘
+                   │
+   one-shots:  minio-init  → crée bucket + lifecycle raw/ 365j
+              airflow-init → db migrate + user admin (|| true)
+
+   volumes nommés Airflow : airflow_data (staging Parquet)
+                            airflow_logs  (logs)
+```
+
+### Services
+
+| Conteneur | Rôle | Port | Persistance |
+| --- | --- | --- | --- |
+| `lab-minio` | Stockage objet S3-compatible, KMS pour SSE-S3 | `9000` API / `9001` console | `minio_data` |
+| `lab-minio-init` | One-shot : crée `data-lake` + lifecycle `raw/` 365j | — | — |
+| `lab-postgres` | Métadonnées Airflow (uniquement) | — | `postgres_data` |
+| `lab-airflow-init` | One-shot : `db migrate` + user admin idempotent | — | — |
+| `lab-airflow-webserver` | UI Airflow | `8080` | — |
+| `lab-airflow-scheduler` | Planificateur (healthcheck `airflow jobs check`) | — | — |
+| `awscli` *(à la demande)* | CLI S3 via `docker compose run` | — | bind `./data` |
+
+### Ce qu'on n'a pas — et pourquoi
+
+- **Pas de cluster Spark** : les TP Spark tournent sur Colab (12 Go RAM). Le lab ne fait que stockage + orchestration.
+- **Pas de LLM local** : Gemini/Mistral via API web ou Colab, jamais en local.
+- **Pas de Postgres métier** : les données vivent dans MinIO (Parquet). Postgres ne sert qu'à Airflow.
+
+---
+
+## Démarrage rapide
 
 ```bash
 # Depuis la racine du dépôt — démarre tout et charge les datasets
@@ -18,7 +71,7 @@ bash start.sh
 bash start.sh --skip-taxi-full
 ```
 
-Ce script enchaîne automatiquement :
+`start.sh` enchaîne automatiquement :
 
 1. Création du `.env` depuis `.env.example` (si absent)
 2. Démarrage de MinIO + PostgreSQL
@@ -34,8 +87,7 @@ Ce script enchaîne automatiquement :
 > **Idempotent** : relancements sans risque. Les fichiers existants sont écrasés,
 > le bucket existant est conservé (`--ignore-existing`).
 >
-> **Internet requis** pour le téléchargement du taxi full (~45 Mo depuis NYC TLC).
-> Ajoutez `--skip-taxi-full` si la connexion est limitée.
+> **Internet requis** pour le taxi full (~45 Mo depuis NYC TLC). Ajoutez `--skip-taxi-full` si la connexion est limitée.
 
 ### Prérequis
 
@@ -48,9 +100,19 @@ docker --version && docker compose version
 pip install boto3 pandas pyarrow
 ```
 
-### Rechargement des datasets uniquement
+### Sans le script (démarre manuel)
 
-Si la stack tourne déjà et que vous voulez juste recharger les données :
+```bash
+cp .env.example .env
+docker compose up -d minio postgres
+docker compose run --rm minio-init          # crée le bucket + lifecycle
+python setup_datasets.py                     # charge les datasets
+docker compose up -d airflow-webserver airflow-scheduler
+```
+
+Premier lancement : ~2 min (téléchargement des images + création du bucket).
+
+### Rechargement des datasets uniquement
 
 ```bash
 python setup_datasets.py --endpoint http://localhost:9000
@@ -63,38 +125,15 @@ python setup_datasets.py --csv-rows 100000         # CSV réduits (développemen
 
 ---
 
-## Démarrage manuel (sans le script)
+## Services & accès
 
-```bash
-# 1. Copier la config (une seule fois)
-cp .env.example .env
-
-# 2. Lancer tous les services + créer le bucket
-docker compose up -d
-docker compose run --rm minio-init
-
-# 3. Charger les datasets
-python setup_datasets.py
-
-# 4. Vérifier
-docker compose ps
-```
-
-Premier lancement : ~2 min (téléchargement des images + création du bucket).
-
----
-
-## Services & Accès
-
-| Service | URL | Identifiants par défaut |
+| Service | URL | Identifiants |
 | --- | --- | --- |
 | MinIO — console web | <http://localhost:9001> | `minioadmin` / `minioadmin123` |
 | MinIO — API S3 | <http://localhost:9000> | — |
 | Airflow | <http://localhost:8080> | `admin` / `admin` |
 
----
-
-## Configuration (`.env`)
+### Configuration (`.env`)
 
 | Variable | Défaut | Description |
 | --- | --- | --- |
@@ -108,73 +147,15 @@ Le bucket unique est `data-lake`.
 
 ---
 
-## AWS CLI
+## Le pipeline `orders_pipeline`
 
-Le service `awscli` n'est pas démarré en permanence — il tourne uniquement à la demande.
+Un DAG fonctionnel est fourni : `airflow/dags/orders_pipeline_dag.py` — pipeline **Bronze → Silver → Gold** qui lit les JSON `raw/orders/` dans MinIO, nettoie/agrège, écrit `gold/` de façon idempotente.
 
-> **Chemins de fichiers :** le dossier `data/` est monté en `/data` dans le conteneur.
-> Utilisez toujours des chemins Linux (`/data/example.csv`), jamais des chemins Windows (`.\data\example.csv`).
-> Raccourci : comme `working_dir` est `/data`, vous pouvez écrire juste `example.csv` sans préfixe.
-
-### Alias (recommandé)
-
-**Bash / Zsh** — ajoutez dans `~/.bashrc` ou `~/.zshrc`, puis `source ~/.bashrc` :
-
-```bash
-alias s3minio='docker compose --progress quiet run --rm awscli s3'
-alias s3api='docker compose --progress quiet run --rm awscli s3api'
-```
-
-**PowerShell** — ajoutez dans votre profil (`notepad $PROFILE`), puis `. $PROFILE` :
-
-```powershell
-# Exécutez ces commandes depuis la racine du dépôt
-function s3minio { docker compose --progress quiet run --rm awscli s3 $args }
-function s3api   { docker compose --progress quiet run --rm awscli s3api $args }
-```
-
-### Commandes fréquentes
-
-> **Note PowerShell :** pas de `\` pour continuer une ligne — utilisez `` ` `` ou écrivez la commande sur une seule ligne.
-
-```bash
-# Lister les buckets
-s3minio ls
-
-# Lister le contenu du bucket
-s3minio ls s3://data-lake/ --recursive
-
-# Uploader un fichier (depuis data/ → /data/ dans le conteneur)
-s3minio cp /data/example.csv s3://data-lake/raw/
-
-# Uploader un dossier entier
-s3minio cp /data/ s3://data-lake/raw/sales/ --recursive
-
-# Métadonnées d'un objet
-s3api head-object --bucket data-lake --key raw/example.csv
-
-# Activer le chiffrement SSE-AES256 (une seule ligne)
-s3api put-bucket-encryption --bucket data-lake --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
-
-# Créer des "dossiers" (objets vides)
-s3api put-object --bucket data-lake --key cleansed/
-s3api put-object --bucket data-lake --key curated/
-
-```
-
----
-
-## Airflow
-
-Un DAG fonctionnel est fourni :
-
-- `airflow/dags/orders_pipeline_dag.py` — pipeline **Bronze → Silver → Gold** : lit les JSON `raw/orders/` dans MinIO, nettoie/agrège, écrit `gold/` de façon idempotente.
-
-### Le pipeline `orders_pipeline` — architecture
+### Architecture du code
 
 Le code métier est **séparé du DAG** dans `airflow/src/` (testable hors Airflow) :
 
-```
+```text
 airflow/
 ├── dags/
 │   └── orders_pipeline_dag.py      ← orchestration : appelle src/
@@ -185,7 +166,7 @@ airflow/
     └── load.py                     ← Gold : agrégation CA → MinIO (idempotent)
 ```
 
-Le DAG n'est qu'une **fine couche d'orchestration** : `from src import extract, transform, load`. Les tâches communiquent via **staging Parquet** (volume `airflow_data`, monté en `/opt/airflow/data`) plutôt que par XCom, adapté aux volumes pandas.
+Le DAG n'est qu'une **fine couche d'orchestration** : `from src import extract, transform, load`. Les tâches communiquent via **staging Parquet** (volume `airflow_data`, monté en `/opt/airflow/data`) plutôt que par XCom — adapté aux volumes pandas.
 
 > **Pourquoi `src/` ?** Le code métier est testable indépendamment d'Airflow :
 > `python -m airflow.src.extract` fonctionne hors conteneur. C'est la bonne pratique
@@ -206,19 +187,54 @@ Les DAGs démarrent **en pause** (`DAGS_ARE_PAUSED_AT_CREATION: "true"`). Dans l
 
 ---
 
-## Colab → MinIO (local)
+## Accéder aux données
 
-**Google Colab** : [colab.research.google.com](https://colab.research.google.com) — notebooks PySpark dans le navigateur, aucune installation requise.
+### AWS CLI — alias `s3minio`
 
-> Colab ne peut pas accéder à votre `localhost`. Pour connecter Colab à un MinIO local,
-> le notebook doit tourner sur la même machine — utilisez Jupyter en local à la place :
->
-> ```bash
-> pip install jupyter pyspark -q
-> jupyter notebook
-> ```
+Le service `awscli` n'est pas démarré en permanence — il tourne à la demande.
 
-Les notebooks de TP contiennent le code de connexion complet. Les credentials à renseigner :
+> **Chemins de fichiers :** le dossier `data/` est monté en `/data` dans le conteneur.
+> Utilisez des chemins Linux (`/data/example.csv`), pas Windows (`.\data\example.csv`).
+> Raccourci : comme `working_dir` est `/data`, vous pouvez écrire `example.csv` sans préfixe.
+
+**Bash / Zsh** — dans `~/.bashrc` ou `~/.zshrc`, puis `source ~/.bashrc` :
+
+```bash
+alias s3minio='docker compose --progress quiet run --rm awscli s3'
+alias s3api='docker compose --progress quiet run --rm awscli s3api'
+```
+
+**PowerShell** — dans votre profil (`notepad $PROFILE`), puis `. $PROFILE` :
+
+```powershell
+function s3minio { docker compose --progress quiet run --rm awscli s3 $args }
+function s3api   { docker compose --progress quiet run --rm awscli s3api $args }
+```
+
+Commandes fréquentes :
+
+```bash
+s3minio ls                                          # lister les buckets
+s3minio ls s3://data-lake/ --recursive              # contenu du bucket
+s3minio cp /data/example.csv s3://data-lake/raw/    # uploader un fichier
+s3minio cp /data/ s3://data-lake/raw/sales/ --recursive   # uploader un dossier
+
+s3api head-object --bucket data-lake --key raw/example.csv   # métadonnées
+s3api put-bucket-encryption --bucket data-lake \
+  --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+```
+
+### Colab / Jupyter → MinIO
+
+> Colab ne peut pas accéder à votre `localhost`. Pour connecter un notebook à un
+> MinIO local, le notebook doit tourner sur la même machine — utilisez Jupyter :
+
+```bash
+pip install jupyter pyspark -q
+jupyter notebook
+```
+
+Credentials à renseigner dans le notebook :
 
 ```python
 MINIO_ENDPOINT   = "http://localhost:9000"
@@ -247,13 +263,13 @@ print(f"✓ {len(response.get('Contents', []))} objet(s) dans {BUCKET}")
 
 ---
 
-## Commandes de Gestion
+## Gestion de la stack
 
 ```bash
 # Arrêter (données conservées)
 docker compose down
 
-# Arrêter + supprimer toutes les données
+# Arrêter + supprimer toutes les données (reset complet)
 docker compose down -v
 
 # Logs en temps réel
@@ -267,17 +283,15 @@ docker compose restart airflow-webserver
 
 ---
 
-## Structure du Dossier
+## Structure du dépôt
 
 ```text
 big-data-lab-infra/
 ├── docker-compose.yml      ← définition des services (MinIO + Airflow + AWS CLI)
 ├── .env.example            ← template de configuration
 ├── .env                    ← votre config locale (gitignored)
-├── .gitignore
 ├── start.sh                ← point d'entrée : démarre tout + charge datasets
 ├── setup_datasets.py       ← chargement des datasets dans MinIO
-├── generate_orders_dataset.py
 ├── requirements.txt        ← dépendances Python (lint / tests / local hors Docker)
 ├── airflow/
 │   ├── dags/               ← DAGs (orchestration uniquement)
@@ -287,44 +301,61 @@ big-data-lab-infra/
 │       ├── extract.py                 ← Bronze : JSON MinIO → Parquet
 │       ├── transform.py               ← Silver : nettoyage + enrichissement
 │       └── load.py                    ← Gold : agrégation → MinIO
-├── minio/
-│   └── init-buckets.sh      ← création du bucket + lifecycle
 └── data/                   ← fichiers à uploader via awscli (monté en /data)
 ```
 
 > Staging Parquet et logs Airflow vivent dans des **volumes Docker nommés**
 > (`airflow_data`, `airflow_logs`) — pas dans `data/`. C'est normal de ne pas
 > les voir sur le disque hôte : ce sont des détails internes entre tâches.
-
----
-
-## Documentation
-
-| Document | Description |
-| --- | --- |
-| [`docs/guide-formateur.md`](docs/guide-formateur.md) | Préparation de la formation, vérifications J0 |
-| [`docs/checklist-j0.md`](docs/checklist-j0.md) | Checklist veille de session |
-| [`docs/plan-b-local.md`](docs/plan-b-local.md) | Déploiement local détaillé |
-
-> L'ancien modèle multi-utilisateur (déploiement centralisé sur Hidora, N buckets par binôme,
-> users SSH/MinIO/Airflow) est conservé dans la branche `archive/multi-user-hidora`.
+>
+> L'ancien modèle multi-utilisateur (déploiement centralisé sur Hidora, N buckets
+> par binôme, users SSH/MinIO/Airflow) est conservé dans la branche
+> `archive/multi-user-hidora`.
 
 ---
 
 ## Dépannage
 
-**Port déjà utilisé :**
+### Port déjà utilisé
 
 ```bash
-# Identifier le processus qui utilise le port 9000
-lsof -i :9000        # macOS / Linux
-netstat -ano | findstr :9000   # Windows
+lsof -i :9000                    # macOS / Linux
+netstat -ano | findstr :9000     # Windows
 ```
 
 Modifiez le mapping de port dans `docker-compose.yml` (`"9002:9000"` par exemple).
 
-**Airflow inaccessible au démarrage :**
-Attendez que `airflow-init` soit terminé (`exited 0`) avant d'ouvrir <http://localhost:8080>. Vérifiez avec `docker compose logs airflow-init`.
+### Airflow inaccessible au démarrage
 
-**Credentials AWS CLI incorrects :**
+Attendez que `airflow-init` soit terminé (`exited 0`) avant d'ouvrir <http://localhost:8080> :
+
+```bash
+docker compose logs airflow-init
+```
+
+Si l'init a échoué, relancez les services Airflow :
+
+```bash
+docker compose up -d airflow-webserver airflow-scheduler
+```
+
+### DAG `orders_pipeline` non visible dans Airflow
+
+```bash
+# Le DAG est dans airflow/dags/ — vérifier qu'il est bien monté
+docker compose exec airflow-scheduler airflow dags list | grep orders
+# Si absent : attendre 60s (refresh automatique du scheduler)
+```
+
+### `setup_datasets.py` échoue avec « Bucket introuvable »
+
+Le service `minio-init` n'a pas encore tourné. Relancer dans l'ordre :
+
+```bash
+docker compose run --rm minio-init
+python setup_datasets.py --endpoint http://localhost:9000
+```
+
+### Credentials AWS CLI incorrects
+
 Vérifiez que `.env` existe et contient les bonnes valeurs, puis relancez depuis la racine du dépôt.
