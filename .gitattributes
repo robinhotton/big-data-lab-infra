@@ -1,0 +1,3 @@
+# Force les scripts shell en LF dans la working copy, même sous Windows
+# (core.autocrlf=true convertit sinon en CRLF → busybox ash échoue sur "set -eu\r").
+*.sh   text eol=lf
