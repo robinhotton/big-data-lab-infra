@@ -17,8 +17,8 @@ Usage :
 
 Options :
     --endpoint         URL MinIO (défaut : http://localhost:9000)
-    --access-key       Access key MinIO (défaut : minioadmin)
-    --secret-key       Secret key MinIO (défaut : minioadmin123)
+    --access-key       Access key MinIO (defaut : env MINIO_ROOT_USER)
+    --secret-key       Secret key MinIO (defaut : env MINIO_ROOT_PASSWORD)
     --bucket           Nom du bucket cible (défaut : data-lake)
     --nb-events        Événements orders par jour (défaut : 200)
     --csv-rows         Lignes par fichier CSV transactions (défaut : 500000)
@@ -268,8 +268,8 @@ def wait_for_minio(s3, retries: int = 10, delay: int = 3) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Charge les datasets de formation dans MinIO.")
     parser.add_argument("--endpoint",       default="http://localhost:9000")
-    parser.add_argument("--access-key",     default=os.getenv("MINIO_ROOT_USER", "minioadmin"))
-    parser.add_argument("--secret-key",     default=os.getenv("MINIO_ROOT_PASSWORD", "minioadmin123"))
+    parser.add_argument("--access-key",     default=os.getenv("MINIO_ROOT_USER"))
+    parser.add_argument("--secret-key",     default=os.getenv("MINIO_ROOT_PASSWORD"))
     parser.add_argument("--bucket",        default=os.getenv("MINIO_BUCKET", "data-lake"),
                         help="Nom du bucket cible (défaut : data-lake)")
     parser.add_argument("--nb-events",      type=int, default=200,
@@ -290,6 +290,12 @@ def main() -> None:
     # (lab offline, pas de téléchargement du dataset NYC TLC).
     if os.getenv("SKIP_TAXI_FULL", "false").lower() == "true":
         args.skip_taxi_full = True
+
+    if not args.access_key or not args.secret_key:
+        parser.error(
+            "Access/Secret key manquants — définir MINIO_ROOT_USER/MINIO_ROOT_PASSWORD "
+            "dans l'environnement (ou via .env) ou passer --access-key/--secret-key."
+        )
 
     s3 = boto3.client(
         "s3",
@@ -348,7 +354,7 @@ def main() -> None:
         upload_orders(s3, bucket, args.nb_events)
 
     print("\n=== Datasets chargés. Vous pouvez commencer les TP. ===")
-    print(f"MinIO console : {args.endpoint.replace(':9000', ':9001')}  (minioadmin / minioadmin123)")
+    print(f"MinIO console : {args.endpoint.replace(':9000', ':9001')}")
     print(f"Airflow UI    : {args.endpoint.replace(':9000', ':8080')}  (admin / admin)\n")
 
 

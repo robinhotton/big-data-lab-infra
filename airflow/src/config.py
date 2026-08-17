@@ -21,9 +21,14 @@ class MinIOConfig:
 
     def __post_init__(self):
         self.endpoint   = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
-        self.access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
-        self.secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
+        self.access_key = os.getenv("MINIO_ACCESS_KEY")
+        self.secret_key = os.getenv("MINIO_SECRET_KEY")
         self.bucket     = os.getenv("MINIO_BUCKET", "data-lake")
+        if not self.access_key or not self.secret_key:
+            raise RuntimeError(
+                "MINIO_ACCESS_KEY/MINIO_SECRET_KEY manquants — "
+                "voir .env.example (copier en .env et renseigner)."
+            )
 
     def s3_url(self, key: str) -> str:
         """Construit l'URI s3://bucket/key pour un objet donné."""
