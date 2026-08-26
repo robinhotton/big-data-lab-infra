@@ -1,79 +1,115 @@
-"""
-Tests de airflow/src/transform.py — couche Silver.
+"""Tests de airflow/src/transform.py — couche Silver (Python pur, sans pandas).
 
-transform_orders() est testée SANS MinIO : on injecte un Parquet raw jouet dans
-le dossier de staging (redirigé via la fixture `staging_dir`), puis on vérifie :
-  - déduplication sur event_id (idempotence si relecture) ;
-  - calcul de total_price = quantity * price ;
-  - filtrage des status non analytiques (cancelled exclus).
-
-Nécessite pyarrow (to_parquet/read_parquet) — skip si absent.
+Alignés sur `CODE/transform.py` du cours et la nouvelle version lab. Couvre le
+contrat de l'exo8 (deduplicate, compute_total_price, filter_valid_status,
+validate_event) et l'idempotence du pipeline.
 """
 from __future__ import annotations
 
-import pytest
-
-pd = pytest.importorskip("pandas")
-pytest.importorskip("pyarrow")
-
-from src.transform import transform_orders  # noqa: E402
-
-
-def _write_raw(staging_dir, rows):
-    """Écrit un Parquet raw jouet à l'emplacement attendu par transform_orders."""
-    df = pd.DataFrame(rows)
-    df.to_parquet(staging_dir / "orders_raw.parquet", index=False)
+from transform import (
+    compute_total_price,
+    deduplicate,
+    filter_valid_status,
+    transform_silver,
+    validate_event,
+)
 
 
-def test_transform_dedup_and_total_price(staging_dir):
-    """Dédup sur event_id + calcul total_price = quantity * price."""
-    rows = [
-        {"event_id": "e1", "timestamp": "2026-03-15T10:00:00Z",
-         "user_id": "usr-0001", "product_id": "prod-001",
-         "quantity": 2, "price": 10.0, "status": "completed"},
-        # Doublon de e1 (même event_id) → doit être dédupliqué
-        {"event_id": "e1", "timestamp": "2026-03-15T10:00:00Z",
-         "user_id": "usr-0001", "product_id": "prod-001",
-         "quantity": 2, "price": 10.0, "status": "completed"},
-        {"event_id": "e2", "timestamp": "2026-03-15T11:00:00Z",
-         "user_id": "usr-0002", "product_id": "prod-002",
-         "quantity": 3, "price": 5.0, "status": "pending"},
+def _event(event_id, status="completed", quantity=2, price=10.0):
+    return {
+        "event_id": event_id,
+        "timestamp": "2026-03-01T10:00:00Z",
+        "user_id": "u1",
+        "product_id": "p1",
+        "quantity": quantity,
+        "price": price,
+        "status": status,
+    }
+
+
+# --- deduplicate : garde le dernier event de chaque cle (idempotent) ---
+
+def test_deduplicate_keeps_last_event():
+    events = [
+        _event("a1", status="pending", quantity=1, price=10.0),
+        _event("a1", status="completed", quantity=1, price=10.0),
+        _event("b2", status="completed", quantity=2, price=5.0),
     ]
-    _write_raw(staging_dir, rows)
-
-    silver = transform_orders("2026-03-15")
-
-    # 3 lignes en entrée, 1 doublon → 2 lignes en sortie
-    assert len(silver) == 2
-    assert set(silver["event_id"]) == {"e1", "e2"}
-
-    # total_price correct
-    by_id = silver.set_index("event_id")
-    assert by_id.loc["e1", "total_price"] == 20.0   # 2 × 10
-    assert by_id.loc["e2", "total_price"] == 15.0   # 3 × 5
+    result = deduplicate(events, key="event_id")
+    assert len(result) == 2
+    a1 = next(e for e in result if e["event_id"] == "a1")
+    assert a1["status"] == "completed"
 
 
-def test_transform_filters_cancelled(staging_dir):
-    """Les status 'cancelled' sont exclus du périmètre analytique."""
-    rows = [
-        {"event_id": "e1", "timestamp": "2026-03-15T10:00:00Z",
-         "user_id": "usr-0001", "product_id": "prod-001",
-         "quantity": 1, "price": 9.99, "status": "completed"},
-        {"event_id": "e2", "timestamp": "2026-03-15T11:00:00Z",
-         "user_id": "usr-0002", "product_id": "prod-002",
-         "quantity": 1, "price": 19.99, "status": "cancelled"},
+def test_idempotence_two_runs_same_result():
+    events = [
+        _event("a1", quantity=1, price=10.0),
+        _event("a2", status="pending", quantity=2, price=5.0),
+        _event("a1", quantity=1, price=10.0),
     ]
-    _write_raw(staging_dir, rows)
-
-    silver = transform_orders("2026-03-15")
-
-    # Seul e1 (completed) survit — e2 (cancelled) est filtré
-    assert len(silver) == 1
-    assert silver.iloc[0]["event_id"] == "e1"
+    run1 = deduplicate(events)
+    run2 = deduplicate(events)
+    assert run1 == run2
+    assert len(run1) == 2
 
 
-def test_transform_empty_input(staging_dir):
-    """Un Parquet raw vide → DataFrame Silver vide (pas d'erreur)."""
-    _write_raw(staging_dir, [])
-    silver = transform_orders("2026-03-15")
-    assert silver.empty
+# --- compute_total_price ---
+
+def test_compute_total_price():
+    assert compute_total_price({"quantity": 3, "price": 9.99}) == 29.97
+    assert compute_total_price({"quantity": 1, "price": 0}) == 0.0
+
+
+# --- filter_valid_status ---
+
+def test_filter_valid_status_keeps_only_allowed():
+    events = [
+        {"event_id": "1", "status": "completed"},
+        {"event_id": "2", "status": "BOGUS"},
+        {"event_id": "3", "status": "pending"},
+        {"event_id": "4", "status": "cancelled"},
+        {"event_id": "5", "status": "refunded"},
+    ]
+    valid = filter_valid_status(events)
+    assert len(valid) == 4
+    assert all(e["status"] in {"pending", "completed", "cancelled", "refunded"} for e in valid)
+
+
+# --- validate_event : contrat de donnees ---
+
+def test_validate_event_ok():
+    ok, reason = validate_event(_event("x1"))
+    assert ok is True
+    assert reason == ""
+
+
+def test_validate_event_price_negative_rejected():
+    ok, reason = validate_event(_event("x1", price=-5.0))
+    assert ok is False
+    assert "price" in reason
+
+
+def test_validate_event_missing_field_rejected():
+    e = {"event_id": "x1", "quantity": 2, "price": 10.0}
+    ok, reason = validate_event(e)
+    assert ok is False
+
+
+def test_validate_event_bad_status_rejected():
+    ok, reason = validate_event(_event("x1", status="BOGUS"))
+    assert ok is False
+    assert "status" in reason
+
+
+# --- transform_silver : pipeline complet valide/dedup/total_price ---
+
+def test_transform_silver_splits_valid_and_invalid():
+    events = [
+        _event("a1", quantity=2, price=10.0, status="completed"),
+        _event("b2", price=-5.0),
+    ]
+    valid, invalid = transform_silver(events)
+    assert len(valid) == 1
+    assert valid[0]["total_price"] == 20.0
+    assert len(invalid) == 1
+    assert "_reject_reason" in invalid[0]

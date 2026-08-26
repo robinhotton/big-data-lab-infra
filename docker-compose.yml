@@ -13,8 +13,10 @@ x-airflow-common: &airflow-common
     # On filtre uniquement SyntaxWarning — les autres warnings (Deprecation, etc.)
     # restent visibles pour signaler de vrais problèmes dans notre code.
     PYTHONWARNINGS: "ignore::SyntaxWarning"
-    # Permet `from src.config import config` depuis les DAGs
-    PYTHONPATH: /opt/airflow
+    # `/opt/airflow` permet `from src.config import ...` (DAG lab).
+    # `/opt/airflow/src` permet `from config import ...` (même code importé « à plat »,
+    # aligné sur CODE/ du cours et l'exo8 — les deux contextes tournent le même fichier).
+    PYTHONPATH: /opt/airflow:/opt/airflow/src
     # --- Connexion MinIO lue par airflow/src/config.py ---
     MINIO_ENDPOINT: http://minio:9000
     MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?voir .env.example}
@@ -32,12 +34,12 @@ x-airflow-common: &airflow-common
     AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID: "minio_default"
     # Dépendances Python installées au démarrage (pas de build d'image custom).
     # Toutes pinnées pour une stack reproductible.
-    _PIP_ADDITIONAL_REQUIREMENTS: "boto3==1.34.162 pandas==2.2.2 pyarrow==16.1.0 apache-airflow-providers-amazon==8.10.0"
+    _PIP_ADDITIONAL_REQUIREMENTS: "boto3==1.34.162 apache-airflow-providers-amazon==8.10.0 pandas==2.2.2"
   volumes:
     - ./airflow/dags:/opt/airflow/dags
     - ./airflow/src:/opt/airflow/src
     - ./scripts:/opt/airflow/scripts:ro
-    # Staging Parquet + logs Airflow en volumes nommés (pas de bind mount) :
+    # Données + logs Airflow en volumes nommés (pas de bind mount) :
     # évite les "Permission denied" quand l'UID airflow (50000) du conteneur
     # ne matche pas l'UID du dossier hôte (notamment sur Linux natif).
     - airflow_data:/opt/airflow/data
@@ -155,7 +157,7 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
       PYTHONWARNINGS: "ignore::SyntaxWarning"
-      PYTHONPATH: /opt/airflow
+      PYTHONPATH: /opt/airflow:/opt/airflow/src
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?voir .env.example}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?voir .env.example}

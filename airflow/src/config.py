@@ -1,76 +1,62 @@
-"""
-Config du pipeline orders — centralise endpoints MinIO, bucket et chemins.
+"""config.py — Configuration MinIO du pipeline orders (Python pur, alignée sur le cours).
 
-Lu via variables d'environnement (renseignées par docker-compose, ou .env en local).
-Les valeurs sont lues dans __post_init__ (pas en valeur par défaut de champ) pour
-qu'elles soient réévaluées à chaque instanciation — nécessaire pour les tests
-(monkeypatch.setenv) et cohérent avec l'injection d'env vars par le conteneur.
+FACTEUR DE PATCH : ce fichier est la version *lab* de `CODE/config.py` du dépôt de
+cours (cours-big-data-local-2j). Il en reprend le contrat (dataclass `MinIOConfig`,
+`from_env()`, `get_s3_client()`), mais les valeurs par défaut pointent vers le réseau
+Docker du lab (endpoint `http://minio:9000`, credentials explicites) alors que
+`CODE/config.py` vise un usage hors Docker (`localhost:9000`).
+
+Il fonctionne dans les deux contextes d'import :
+  - `from config import ...`  (modules métier copiés dans airflow/src/, ex. TP2) ;
+  - `from src.config import ...`  (DAG du lab exécuté par Airflow, PYTHONPATH=/opt/airflow).
+
+Les valeurs sont lues depuis l'environnement à l'instanciation (variables injectées
+par docker-compose, ou .env en local). Pour un usage hors Docker depuis la machine
+hôte, définir `MINIO_ENDPOINT=http://localhost:9000`.
 """
-from dataclasses import dataclass, field
-from pathlib import Path
+from __future__ import annotations
+
 import os
+from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(frozen=True)
 class MinIOConfig:
     """Connexion MinIO (S3-compatible). Lue depuis l'environnement à l'instanciation."""
-    endpoint:   str = ""
-    access_key: str = ""
-    secret_key: str = ""
-    bucket:     str = ""
 
-    def __post_init__(self):
-        self.endpoint   = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
-        self.access_key = os.getenv("MINIO_ACCESS_KEY")
-        self.secret_key = os.getenv("MINIO_SECRET_KEY")
-        self.bucket     = os.getenv("MINIO_BUCKET", "data-lake")
-        if not self.access_key or not self.secret_key:
-            raise RuntimeError(
-                "MINIO_ACCESS_KEY/MINIO_SECRET_KEY manquants — "
-                "voir .env.example (copier en .env et renseigner)."
-            )
+    endpoint: str
+    access_key: str
+    secret_key: str
+    bucket: str
 
-    def s3_url(self, key: str) -> str:
-        """Construit l'URI s3://bucket/key pour un objet donné."""
-        return f"s3://{self.bucket}/{key}"
+    @classmethod
+    def from_env(cls) -> "MinIOConfig":
+        """Construit la config depuis l'environnement.
 
-    def client(self):
-        """Construit un client boto3 S3 pointant sur MinIO."""
-        import boto3
-        return boto3.client(
-            "s3",
-            endpoint_url=self.endpoint,
-            aws_access_key_id=self.access_key,
-            aws_secret_access_key=self.secret_key,
+        Le défaut d'endpoint est `http://minio:9000` (réseau Docker du lab). Pour un
+        usage *hors Docker* (depuis la machine hôte, ex. notebook/tests), définir
+        `MINIO_ENDPOINT=http://localhost:9000`.
+        """
+        return cls(
+            endpoint=os.getenv("MINIO_ENDPOINT", "http://minio:9000"),
+            access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
+            secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin123"),
+            bucket=os.getenv("MINIO_BUCKET", "data-lake"),
         )
 
 
-@dataclass
-class PathsConfig:
-    """Chemins de staging Parquet (volume partagé monté dans le conteneur)."""
-    staging: Path = field(default_factory=lambda: Path("/opt/airflow/data/staging"))
-    reports:  Path = field(default_factory=lambda: Path("/opt/airflow/data/reports"))
+def get_s3_client():
+    """Construit un client boto3 pointant vers MinIO (S3-compatible).
 
-    def __post_init__(self):
-        self.staging.mkdir(parents=True, exist_ok=True)
-        self.reports.mkdir(parents=True, exist_ok=True)
+    `boto3` est importé localement : c'est une dépendance du pipeline, pas de la
+    configuration — ça permet d'importer ce module sans boto3 installé (ex. tests).
+    """
+    import boto3
 
-
-@dataclass
-class ETLConfig:
-    minio: MinIOConfig  = field(default_factory=MinIOConfig)
-    paths: PathsConfig  = field(default_factory=PathsConfig)
-
-
-# Instance globale — importée par extract/transform/load et le DAG.
-# Les valeurs sont figées à l'import (au démarrage du conteneur) ; pour des valeurs
-# fraîches (tests), instancier explicitement ETLConfig().
-config = ETLConfig()
-
-
-if __name__ == "__main__":
-    print("=== Pipeline orders — Config ===")
-    print(f"MinIO endpoint : {config.minio.endpoint}")
-    print(f"Bucket         : {config.minio.bucket}")
-    print(f"Staging        : {config.paths.staging}")
-    print("Config OK")
+    cfg = MinIOConfig.from_env()
+    return boto3.client(
+        "s3",
+        endpoint_url=cfg.endpoint,
+        aws_access_key_id=cfg.access_key,
+        aws_secret_access_key=cfg.secret_key,
+    )

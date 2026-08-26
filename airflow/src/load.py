@@ -1,64 +1,68 @@
+"""load.py — Gold : agrégation CA et écriture idempotente dans MinIO (Python pur).
+
+Version *lab* de `CODE/load.py` du cours (cours-big-data-local-2j). Mêmes contrats :
+`aggregate_gold`, `write_json_to_minio`, `write_quarantine`, `load_gold`.
+
+Silver → Gold : on agrège le CA par status, on écrit `curated/ca_by_status_{ds}.json`
+de façon idempotente (clé datée → un re-run écrase sans créer de doublon), et les
+invalides de Silver partent en `quarantine/orders/{ds}.json` (pattern Quarantine).
+
+Sans pandas ni Spark : agrégation via `collections.Counter`.
 """
-Load — agrégation Gold et écriture idempotente dans MinIO.
+from __future__ import annotations
 
-Entrée : staging/orders_silver.parquet  (écrit par transform.py)
-Sortie : s3://data-lake/gold/orders_daily/ds=YYYY-MM-DD/orders_daily.parquet
+import collections
+import json
 
-L'écriture est partitionnée par date logique (ds) et écrase la partition du jour :
-rejouer le DAG pour la même date ne crée jamais de doublon (idempotence).
-"""
-import logging
-import io
-
-import pandas as pd
-
-from src.config import config
-
-logger = logging.getLogger(__name__)
+from config import get_s3_client, MinIOConfig
+from transform import transform_silver
 
 
-def load_gold(ds: str) -> dict:
+def aggregate_gold(events: list[dict]) -> dict:
+    """Agrège le CA par status à partir des événements Silver (sans pandas)."""
+    ca = collections.Counter()
+    for e in events:
+        ca[e["status"]] += e["total_price"]
+    return {
+        "ca_by_status": {k: round(v, 2) for k, v in ca.items()},
+        "total_events": len(events),
+        "total_ca": round(sum(ca.values()), 2),
+    }
+
+
+def write_json_to_minio(key: str, payload: dict) -> None:
+    """Écrit un dict en JSON dans MinIO (mode overwrite : clé datée = idempotent)."""
+    cfg = MinIOConfig.from_env()
+    s3 = get_s3_client()
+    body = json.dumps(payload, indent=2).encode("utf-8")
+    s3.put_object(Bucket=cfg.bucket, Key=key, Body=body)
+    print(f"[Gold] écrit {len(body)} octets -> {key}")
+
+
+def write_quarantine(invalid: list[dict], ds: str) -> None:
+    """Écrit les événements invalides en quarantine (pattern Quarantine)."""
+    if not invalid:
+        return
+    write_json_to_minio(f"quarantine/orders/{ds}.json", {"rejected": invalid})
+
+
+def load_gold(ds: str = "2026-03-01") -> dict:
+    """Pipeline Gold complet : extract Bronze -> transform Silver -> agrège + écrit.
+
+    Retourne les métriques Gold (ca_by_status, total_events, total_ca).
     """
-    Agrège les orders Silver en CA par jour et produit (couche Gold),
-    puis écrit le résultat dans MinIO, partitionné par date.
+    from extract import extract_bronze  # import local : évite les cycles config->extract
 
-    Args:
-        ds: date logique (utilisé pour la partition ds=YYYY-MM-DD).
+    events = extract_bronze(ds)
+    valid, invalid = transform_silver(events)
 
-    Returns:
-        Dict de métriques {"nb_lignes_gold": int, "ca_total": float}.
-    """
-    silver_path = config.paths.staging / "orders_silver.parquet"
-    df = pd.read_parquet(silver_path)
+    gold = aggregate_gold(valid)
+    write_json_to_minio(f"curated/ca_by_status_{ds}.json", gold)
+    write_quarantine(invalid, ds)
 
-    if df.empty:
-        logger.warning("Load — aucune order Silver pour %s, Gold vide", ds)
-        return {"nb_lignes_gold": 0, "ca_total": 0.0}
-
-    # Agrégation Gold : CA par jour + produit
-    df["order_date"] = pd.to_datetime(df["timestamp"]).dt.date
-    gold = (
-        df.groupby(["order_date", "product_id"], as_index=False)
-          .agg(
-              nb_orders=("event_id", "count"),
-              ca_total=("total_price", "sum"),
-          )
-    )
-    gold["ds"] = ds
-
-    # Écriture idempotente dans MinIO (partition ds=YYYY-MM-DD)
-    s3 = config.minio.client()
-    bucket = config.minio.bucket
-    key = f"gold/orders_daily/ds={ds}/orders_daily.parquet"
-
-    parquet_bytes = gold.to_parquet(index=False)
-    s3.put_object(Bucket=bucket, Key=key, Body=parquet_bytes)
-    logger.info("Load OK — %d lignes Gold écrites → s3://%s/%s", len(gold), bucket, key)
-
-    return {"nb_lignes_gold": len(gold), "ca_total": float(gold["ca_total"].sum())}
+    print(f"[Gold] CA par status pour {ds} : {gold['ca_by_status']}")
+    return gold
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-8s | %(message)s")
-    metrics = load_gold("2026-03-15")
-    print(metrics)
+    load_gold("2026-03-01")
