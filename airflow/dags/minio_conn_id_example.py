@@ -38,6 +38,7 @@ BUCKET = "data-lake"
 def _list_datasets(**_):
     """Liste les clés sous le préfixe `raw/` et compte les objets par dataset."""
     hook = S3Hook(CONN_ID)
+    
     keys = hook.list_keys(bucket_name=BUCKET, prefix="raw/")
     if keys is None:
         keys = []

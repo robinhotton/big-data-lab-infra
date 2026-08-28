@@ -25,7 +25,7 @@ x-airflow-common: &airflow-common
     # Connexion Airflow déclarée (conn_id="minio_default") — utilisée par les
     # S3Hook du DAG d'exemple. Format JSON (l'URI aws://...?endpoint_url= n'est
     # pas valide en Airflow 2.9) : credentials + endpoint dans les extras.
-    AIRFLOW_CONN_MINIO_DEFAULT: '{"conn_type":"aws","login":"${MINIO_ROOT_USER}","password":"${MINIO_ROOT_PASSWORD}","extra":"{\"endpoint_url\":\"http://minio:9000\"}"}'
+    AIRFLOW_CONN_MINIO_DEFAULT: '{"conn_type":"aws","host":"http://minio:9000","login":"${MINIO_ROOT_USER}","password":"${MINIO_ROOT_PASSWORD}","extra":"{\"endpoint_url\":\"http://minio:9000\"}"}'
     # Remote logging : logs des DAG runs envoyés vers MinIO (bucket data-lake).
     # Réutilise la connexion minio_default — zéro config UI. Conserve les logs
     # même si le conteneur est recréé (cloud-native, FS éphémère).
@@ -162,7 +162,7 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?voir .env.example}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?voir .env.example}
       MINIO_BUCKET: data-lake
-      AIRFLOW_CONN_MINIO_DEFAULT: '{"conn_type":"aws","login":"${MINIO_ROOT_USER}","password":"${MINIO_ROOT_PASSWORD}","extra":"{\"endpoint_url\":\"http://minio:9000\"}"}'
+      AIRFLOW_CONN_MINIO_DEFAULT: '{"conn_type":"aws","host":"http://minio:9000","login":"${MINIO_ROOT_USER}","password":"${MINIO_ROOT_PASSWORD}","extra":"{\"endpoint_url\":\"http://minio:9000\"}"}'
       AIRFLOW__LOGGING__REMOTE_LOGGING: "True"
       AIRFLOW__LOGGING__REMOTE_BASE_LOG_FOLDER: "s3://data-lake/airflow-logs/"
       AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID: "minio_default"
