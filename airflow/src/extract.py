@@ -14,8 +14,11 @@ fichier entier échouerait (`Extra data`).
 from __future__ import annotations
 
 import json
+import logging
 
 from config import MinIOConfig, get_s3_client
+
+logger = logging.getLogger(__name__)
 
 
 def parse_jsonl(raw: bytes) -> list[dict]:
@@ -68,7 +71,7 @@ def extract_bronze(ds: str = "2026-03-01") -> list[dict]:
         resp = s3.get_object(Bucket=cfg.bucket, Key=key)
         events.extend(parse_jsonl(resp["Body"].read()))  # JSON Lines -> list[dict]
 
-    print(f"[Bronze] {len(events)} événement(s) lus pour {ds}")
+    logger.info("Bronze : %s événement(s) lus pour %s", len(events), ds)
     return events
 
 

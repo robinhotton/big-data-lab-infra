@@ -23,6 +23,7 @@ Modules metier dans `airflow/src/` (monte `/opt/airflow/src`). Imports « a plat
 
 from __future__ import annotations
 
+import logging
 import sys
 from datetime import datetime, timedelta
 
@@ -38,6 +39,8 @@ from extract import extract_bronze  # noqa: E402
 from load import aggregate_gold, write_json_to_minio, write_quarantine  # noqa: E402
 from transform import transform_silver  # noqa: E402
 
+logger = logging.getLogger(__name__)
+
 
 def _ds_from_context(context) -> str:
     """Date logique : `conf["ds"]` du trigger si fournie, sinon `context["ds"]`."""
@@ -48,7 +51,7 @@ def task_extract_bronze(**context) -> list[dict]:
     """Bronze : lit les JSON orders du jour. Retourne les events (-> XCom)."""
     ds = _ds_from_context(context)
     events = extract_bronze(ds)
-    print(f"Bronze : {len(events)} events pour {ds}")
+    logger.info("Bronze : %s events pour %s", len(events), ds)
     return events
 
 
@@ -60,7 +63,7 @@ def task_transform_silver(events: list[dict], **context) -> list[dict]:
     ds = _ds_from_context(context)
     valid, invalid = transform_silver(list(events))
     write_quarantine(invalid, ds)
-    print(f"Silver : {len(valid)} valides, {len(invalid)} -> quarantine")
+    logger.info("Silver : %s valides, %s -> quarantine", len(valid), len(invalid))
     return valid
 
 
@@ -69,7 +72,7 @@ def task_load_gold(valid_events: list[dict], **context) -> dict:
     ds = _ds_from_context(context)
     gold = aggregate_gold(list(valid_events))
     write_json_to_minio(f"curated/ca_by_status_{ds}.json", gold)
-    print(f"Gold : CA par status pour {ds} = {gold['ca_by_status']}")
+    logger.info("Gold : CA par status pour %s = %s", ds, gold["ca_by_status"])
     return gold
 
 
