@@ -4,6 +4,15 @@ Environnement lab de la formation : **MinIO** (stockage objet S3) + **Airflow** 
 
 Chaque apprenant lance **sa propre stack en local** — un seul bucket `data-lake`, un seul compte admin. Pas de déploiement centralisé.
 
+> **Stockage : image `pgsty/minio`.** Le dépôt upstream `minio/minio` a été archivé
+> en février 2026 et n'est plus téléchargeable — la stack bascule donc sur
+> [`pgsty/minio`](https://hub.docker.com/r/pgsty/minio), un fork communautaire
+> AGPLv3 du serveur MinIO, drop-in compatible (binaire `minio`, variables
+> `MINIO_*`, format de données conservés, console admin restaurée). Pourquoi ce
+> choix et ce qu'il implique : voir [§ Stockage](#stockage--pourquoi-pgstyminio).
+> Migration prévue vers la ligne maintenue `pgsty/silo` en V2/V3 :
+> [`docs/HARDENING-ROADMAP.md`](docs/HARDENING-ROADMAP.md).
+
 > Ce dépôt est le volet **infrastructure** de la formation. Les supports de cours, TP et annexes pédagogiques vivent dans le dépôt séparé [`cours-big-data-cloud`](https://github.com/robinhotton/cours-big-data-cloud).
 
 ---
@@ -82,6 +91,64 @@ Pourquoi on génère plutôt que committer :
 - **0 dépendance Internet** pour 4 datasets sur 5. Seul le taxi full (~45 Mo, réel NYC TLC) se télécharge — et il est optionnel (`--skip-taxi-full`).
 
 > Le pattern `seed/` (fichiers statiques injectés au démarrage) marche pour des données réelles et petites (~50 Ko). Ici les volumes et la nature synthétique l'imposent : `setup_datasets.py` est notre **seed programmatique**.
+
+---
+
+## Stockage : pourquoi `pgsty/minio`
+
+### Le problème
+
+En février 2026, le dépôt `minio/minio` (60k ⭐) a été passé en **fin de vie**
+puis **archivé** : plus de maintenance, et surtout **plus de distribution binaire
+ni d'images Docker**. Toute stack qui référence `minio/minio:...` ne démarre plus :
+
+```bash
+$ docker pull minio/minio:RELEASE.2024-10-13T13-34-11Z
+denied: requested access to the resource is denied
+```
+
+C'était le cas de ce lab. Rien dans notre code n'était cassé — c'est la chaîne
+d'approvisionnement qui a disparu.
+
+### La solution retenue
+
+[`pgsty/minio`](https://hub.docker.com/r/pgsty/minio) est un **fork AGPLv3**
+maintenu par la communauté (Pigsty), qui republie le serveur MinIO avec la
+console admin restaurée et les CVE corrigées. Pour ce lab, c'est un remplacement
+**drop-in** :
+
+| | Changé ? |
+| --- | --- |
+| Binaire `minio`, commande `server /data --console-address` | Non |
+| Variables `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_KMS_SECRET_KEY` | Non |
+| Client `mc` (`mb`, `encrypt`, `ilm`, …) | Non |
+| Données existantes (layout `.minio.sys`), routes `/minio/*` | Non |
+| Nom de l'image | Oui : `minio/minio` → `pgsty/minio` |
+
+Concrètement, dans `docker-compose.yml` :
+
+```yaml
+minio:      image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z   # avant : minio/minio:RELEASE.2024-…
+minio-init: image: pgsty/mc:RELEASE.2026-08-04T00-00-00Z      # avant : minio/mc:RELEASE.2024-…
+```
+
+Aucune migration de données n'est nécessaire : une stack existante repart avec
+ses volumes.
+
+### Points d'attention
+
+- **Licence AGPLv3.** MinIO est passé d'Apache 2.0 à AGPLv3 en 2021, et le fork
+  conserve cette licence. Usage en formation locale : rien à faire. Si la stack
+  était redistribuée ou intégrée à un service accessible en réseau, relire les
+  termes AGPL.
+- **Marque.** `MinIO®` est une marque déposée de MinIO, Inc. `pgsty/minio` est un
+  fork communautaire indépendant, sans affiliation avec MinIO, Inc.
+- **Fork gelé.** Depuis le 2026-08-06, la ligne de développement a été renommée
+  [`pgsty/silo`](https://silo.pgsty.com/). Le tag `RELEASE.2026-08-04T00-00-00Z`
+  utilisé ici reste publié et téléchargeable en l'état, mais ne recevra plus de
+  correctifs. C'est une dette assumée pour la V1 (réparer vite pour les
+  apprenants) : la migration est planifiée dans
+  [`docs/HARDENING-ROADMAP.md`](docs/HARDENING-ROADMAP.md).
 
 ---
 
@@ -326,6 +393,14 @@ ruff check --fix .                # corrige les erreurs auto (imports, etc.)
 > automatiquement si absent. Voir `tests/README.md` pour étendre la suite
 > (mock MinIO avec `moto`, valider les DAGs avec `pytest-airflow`).
 
+### Audit & roadmap
+
+L'état de la stack est documenté dans [`docs/`](docs/) :
+
+- [`docs/AUDIT.md`](docs/AUDIT.md) — bonnes pratiques en place, anomalies relevées (par gravité)
+- [`docs/HARDENING-ROADMAP.md`](docs/HARDENING-ROADMAP.md) — plan de rigidification V2/V3
+  (CI, tests smoke, durcissement, migration `pgsty/silo`)
+
 ---
 
 ## Structure du dépôt
@@ -338,6 +413,9 @@ big-data-lab-infra/
 ├── setup_datasets.py       ← chargement des datasets dans MinIO (RNG seedé)
 ├── requirements.txt        ← dépendances Python (runtime + dev : pytest, ruff)
 ├── pyproject.toml          ← config ruff (lint) + pytest
+├── docs/                   ← audit et roadmap de rigidification
+│   ├── AUDIT.md                      ← bonnes pratiques + anomalies par gravité
+│   └── HARDENING-ROADMAP.md          ← plan V2 (CI, tests, durcissement) / V3 (silo)
 ├── scripts/                ← entrypoints one-shot montés dans les conteneurs
 │   ├── minio-init.sh                  ← crée bucket data-lake + lifecycle
 │   ├── datasets-init.sh               ← pip install + setup_datasets.py
