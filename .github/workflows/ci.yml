@@ -43,8 +43,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Ruff (lint)
-        run: ruff check .
+      - name: Ruff (lint + format)
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Mypy (types)
+        run: mypy
 
       - name: Pytest (métier + contrat des DAGs)
         run: pytest -v --tb=short --junitxml=reports/pytest.xml

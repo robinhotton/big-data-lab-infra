@@ -8,12 +8,14 @@ Le test clé est la **pagination** : `ListObjectsV2` renvoie au plus 1000 clés
 par appel. Sans suivi de `ContinuationToken`, `list_orders_for_date` perdait
 silencieusement les fichiers au-delà de ce seuil (voir docs/AUDIT.md, A2).
 """
+
 from __future__ import annotations
 
 import pytest
 from extract import _list_keys, list_orders_for_date, parse_jsonl
 
 # --- parse_jsonl : contrat du format JSON Lines du lab ----------------------
+
 
 def test_parse_jsonl_one_object_per_line():
     raw = b'{"event_id":"a"}\n{"event_id":"b"}\n'
@@ -30,6 +32,7 @@ def test_parse_jsonl_empty_returns_empty_list():
 
 
 # --- _list_keys : pagination ----------------------------------------------
+
 
 class FakeS3Paged:
     """Client S3 factice qui simule `ListObjectsV2` paginé (1000 clés/page).
@@ -99,6 +102,7 @@ def test_list_orders_for_date_filters_on_ds(monkeypatch):
 
 
 # --- Intégration moto (optionnelle) ----------------------------------------
+
 
 @pytest.fixture
 def moto_s3(monkeypatch):

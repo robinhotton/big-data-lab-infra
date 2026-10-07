@@ -9,6 +9,7 @@ invalides de Silver partent en `quarantine/orders/{ds}.json` (pattern Quarantine
 
 Sans pandas ni Spark : agrégation via `collections.Counter`.
 """
+
 from __future__ import annotations
 
 import collections
@@ -20,7 +21,7 @@ from transform import transform_silver
 
 def aggregate_gold(events: list[dict]) -> dict:
     """Agrège le CA par status à partir des événements Silver (sans pandas)."""
-    ca = collections.Counter()
+    ca: collections.Counter[str] = collections.Counter()
     for e in events:
         ca[e["status"]] += e["total_price"]
     return {

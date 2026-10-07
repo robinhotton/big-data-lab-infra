@@ -10,6 +10,7 @@ Format des fichiers : **JSON Lines** (.json), un événement par ligne — c'est
 généré par `setup_datasets.py` du lab. On lit ligne à ligne ; un `json.loads()` sur le
 fichier entier échouerait (`Extra data`).
 """
+
 from __future__ import annotations
 
 import json

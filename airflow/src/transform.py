@@ -11,6 +11,7 @@ Testable hors Airflow (cf. `tests/airflow_src/test_transform.py`).
 Colonnes orders (dataset du lab) :
   event_id, timestamp, user_id, product_id, quantity, price, status
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -87,11 +88,13 @@ def transform_silver(events: list[dict]) -> tuple[list[dict], list[dict]]:
         if ok:
             valid.append(e)
         else:
-            invalid.append({
-                **e,
-                "_reject_reason": reason,
-                "_reject_ts": datetime.now(UTC).isoformat(),
-            })
+            invalid.append(
+                {
+                    **e,
+                    "_reject_reason": reason,
+                    "_reject_ts": datetime.now(UTC).isoformat(),
+                }
+            )
 
     valid = deduplicate(valid)
     valid = filter_valid_status(valid)
@@ -104,15 +107,33 @@ def transform_silver(events: list[dict]) -> tuple[list[dict], list[dict]]:
 if __name__ == "__main__":
     # Démonstration hors Airflow (testable directement)
     sample = [
-        {"event_id": "a1", "timestamp": "2026-03-01T10:00:00Z",
-         "user_id": "u1", "product_id": "p1", "quantity": 2, "price": 10.0,
-         "status": "completed"},
-        {"event_id": "a1", "timestamp": "2026-03-01T10:05:00Z",  # doublon -> écrasé
-         "user_id": "u1", "product_id": "p1", "quantity": 3, "price": 10.0,
-         "status": "completed"},
-        {"event_id": "b2", "timestamp": "2026-03-01T11:00:00Z",
-         "user_id": "u2", "product_id": "p2", "quantity": 1, "price": -5.0,  # KO
-         "status": "completed"},
+        {
+            "event_id": "a1",
+            "timestamp": "2026-03-01T10:00:00Z",
+            "user_id": "u1",
+            "product_id": "p1",
+            "quantity": 2,
+            "price": 10.0,
+            "status": "completed",
+        },
+        {
+            "event_id": "a1",
+            "timestamp": "2026-03-01T10:05:00Z",  # doublon -> écrasé
+            "user_id": "u1",
+            "product_id": "p1",
+            "quantity": 3,
+            "price": 10.0,
+            "status": "completed",
+        },
+        {
+            "event_id": "b2",
+            "timestamp": "2026-03-01T11:00:00Z",
+            "user_id": "u2",
+            "product_id": "p2",
+            "quantity": 1,
+            "price": -5.0,  # KO
+            "status": "completed",
+        },
     ]
     valid, invalid = transform_silver(sample)
     print(f"Valides   : {len(valid)}")

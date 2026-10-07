@@ -127,8 +127,8 @@ panne qu'on vient de subir : une image a disparu et personne ne l'a su.
 ### A7 — 🟢 Faible · Credentials en clair dans les defaults · `airflow/src/config.py`
 
 ```python
-access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
-secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin123"),
+access_key = (os.getenv("MINIO_ACCESS_KEY", "minioadmin"),)
+secret_key = (os.getenv("MINIO_SECRET_KEY", "minioadmin123"),)
 ```
 
 Un code métier qui **silence** une config absente avec des identifiants de lab

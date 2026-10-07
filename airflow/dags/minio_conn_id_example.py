@@ -16,6 +16,7 @@ configuration manuelle dans l'UI n'est nécessaire.
 Ce DAG est volontairement pédagogique et n'a pas de logique métier : il liste,
 compte et vérifie la présence des datasets dans le bucket `data-lake`.
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,7 +40,7 @@ BUCKET = "data-lake"
 def _list_datasets(**_):
     """Liste les clés sous le préfixe `raw/` et compte les objets par dataset."""
     hook = S3Hook(CONN_ID)
-    
+
     keys = hook.list_keys(bucket_name=BUCKET, prefix="raw/")
     if keys is None:
         keys = []
@@ -100,9 +101,8 @@ with DAG(
     default_args=default_args,
     tags=["exemple", "minio", "conn_id"],
 ) as dag:
-
-    task_list = PythonOperator(task_id="list_datasets",  python_callable=_list_datasets)
-    task_check = PythonOperator(task_id="check_orders",  python_callable=_check_orders)
-    task_sum   = PythonOperator(task_id="summary",       python_callable=_summary)
+    task_list = PythonOperator(task_id="list_datasets", python_callable=_list_datasets)
+    task_check = PythonOperator(task_id="check_orders", python_callable=_check_orders)
+    task_sum = PythonOperator(task_id="summary", python_callable=_summary)
 
     task_list >> task_check >> task_sum

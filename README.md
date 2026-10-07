@@ -344,10 +344,10 @@ jupyter notebook
 Credentials à renseigner dans le notebook :
 
 ```python
-MINIO_ENDPOINT   = "http://localhost:9000"
+MINIO_ENDPOINT = "http://localhost:9000"
 MINIO_ACCESS_KEY = "minioadmin"
 MINIO_SECRET_KEY = "minioadmin123"
-BUCKET           = "data-lake"
+BUCKET = "data-lake"
 ```
 
 Test de connexion :
@@ -397,12 +397,15 @@ Airflow**. La suite couvre `config`, `extract`, `transform`, `load` et le contra
 des DAGs (moteur S3 mocké avec `moto`).
 
 ```bash
-pip install -r requirements.txt   # installe aussi pytest + ruff + moto
+pip install -r requirements.txt   # installe aussi pytest + ruff + mypy + moto
 pytest -q                         # lance la suite
 pytest -q -k extract              # filtre par nom
 
 ruff check .                      # lint
 ruff check --fix .                # corrige les erreurs auto (imports, etc.)
+ruff format .                     # formate le dépôt
+ruff format --check .             # vérifie sans toucher (c'est ce que la CI exige)
+mypy                              # vérifie les types du code métier (airflow/src/)
 ```
 
 ### Tests smoke (intégration réelle)
@@ -428,7 +431,7 @@ ports dépubliés) et vérifie bout en bout que le lab est réellement utilisabl
 
 | Job     | Déclencheur                | Contenu                                              |
 |---------|----------------------------|------------------------------------------------------|
-| lint & tests | push / PR            | `ruff check .` + `pytest -q` (rapport JUnit en artifact) |
+| lint & tests | push / PR            | `ruff check` + `ruff format --check` + `mypy` + `pytest -q` (rapport JUnit en artifact) |
 | smoke   | push / PR                  | `scripts/smoke-test.sh` + `docker pull` des images épinglées |
 | smoke   | cron mensuel (le 3 à 6h17) | re-verification supply-chain des images              |
 

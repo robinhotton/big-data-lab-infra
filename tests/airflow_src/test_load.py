@@ -3,6 +3,7 @@
 `aggregate_gold` est du Python pur : testé directement.
 Les fonctions d'écriture sont testées avec `moto` (skipé si absent).
 """
+
 from __future__ import annotations
 
 import json
@@ -11,6 +12,7 @@ import pytest
 from load import aggregate_gold
 
 # --- aggregate_gold : agrégation CA par status (sans pandas) ---------------
+
 
 def _silver(event_id="a", status="completed", total_price=10.0):
     return {
@@ -53,6 +55,7 @@ def test_aggregate_gold_rounds_to_two_decimals():
 
 
 # --- Écriture MinIO (moto) -------------------------------------------------
+
 
 @pytest.fixture
 def moto_env(monkeypatch):
@@ -103,8 +106,8 @@ def test_write_quarantine_writes_rejects(moto_env):
 
     write_quarantine([{"event_id": "x", "_reject_reason": "price <= 0"}], "2026-03-01")
 
-    body = moto_env.get_object(
-        Bucket="data-lake", Key="quarantine/orders/2026-03-01.json"
-    )["Body"].read()
+    body = moto_env.get_object(Bucket="data-lake", Key="quarantine/orders/2026-03-01.json")[
+        "Body"
+    ].read()
     payload = json.loads(body)
     assert payload["rejected"][0]["_reject_reason"] == "price <= 0"

@@ -14,6 +14,7 @@ Les valeurs sont lues depuis l'environnement à l'instanciation (variables injec
 par docker-compose, ou .env en local). Pour un usage hors Docker depuis la machine
 hôte, définir `MINIO_ENDPOINT=http://localhost:9000`.
 """
+
 from __future__ import annotations
 
 import os

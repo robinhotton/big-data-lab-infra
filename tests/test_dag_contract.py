@@ -8,6 +8,7 @@ du lab — c'est le garde-fou « on a cassé un TP sans s'en rendre compte ».
 Si `apache-airflow` est installé, un test plus complet se lance : import
 réel du module DAG.
 """
+
 from __future__ import annotations
 
 import ast
@@ -54,6 +55,7 @@ def test_dag_uses_python_operator(path: Path):
 
 
 # --- Import réel (uniquement si Airflow est installé) ----------------------
+
 
 @pytest.mark.parametrize("path", DAG_FILES, ids=lambda p: p.name)
 def test_dag_imports_with_airflow_if_available(path: Path, monkeypatch):

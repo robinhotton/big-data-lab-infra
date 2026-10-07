@@ -12,6 +12,17 @@ select = ["E", "F", "I", "UP", "B"]
 # Les DAGs importent après sys.path manipulation (E402 attendu)
 per-file-ignores = { "airflow/dags/*.py" = ["E402"] }
 
+[tool.mypy]
+python_version = "3.11"
+# boto3 et airflow n'ont pas de stubs dans ce lab — on ne bloque pas dessus.
+ignore_missing_imports = true
+# Seul le code métier est vérifié : les DAGs importent Airflow, hors périmètre.
+files = ["airflow/src"]
+
+[[tool.mypy.overrides]]
+module = "airflow.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

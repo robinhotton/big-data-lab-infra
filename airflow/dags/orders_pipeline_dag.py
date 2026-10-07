@@ -20,6 +20,7 @@ Deploiement : `big-data-lab-infra/airflow/dags/` (monte sur `/opt/airflow/dags`)
 Modules metier dans `airflow/src/` (monte `/opt/airflow/src`). Imports « a plat »
 (`from config import ...`), meme schema que CODE/ du cours et que tests/.
 """
+
 from __future__ import annotations
 
 import sys
@@ -81,20 +82,18 @@ default_args = {
 with DAG(
     dag_id="orders_pipeline",
     description="Pipeline commandes : Bronze -> Silver -> Gold (Python pur, src/)",
-    schedule="0 6 * * *",             # cron : tous les jours a 6h
+    schedule="0 6 * * *",  # cron : tous les jours a 6h
     start_date=datetime(2026, 3, 1),  # toujours datetime(), jamais days_ago()
-    catchup=False,                    # pas de backfill automatique
+    catchup=False,  # pas de backfill automatique
     default_args=default_args,
     tags=["orders", "bronze-silver-gold", "pure-python"],
 ) as dag:
-
-    t_bronze = PythonOperator(task_id="extract_bronze",
-                              python_callable=task_extract_bronze)
-    t_silver = PythonOperator(task_id="transform_silver",
-                              python_callable=task_transform_silver,
-                              op_args=[t_bronze.output])  # XComArg des events Bronze
-    t_gold = PythonOperator(task_id="load_gold",
-                            python_callable=task_load_gold,
-                            op_args=[t_silver.output])    # XComArg des events Silver
+    t_bronze = PythonOperator(task_id="extract_bronze", python_callable=task_extract_bronze)
+    t_silver = PythonOperator(
+        task_id="transform_silver", python_callable=task_transform_silver, op_args=[t_bronze.output]
+    )  # XComArg des events Bronze
+    t_gold = PythonOperator(
+        task_id="load_gold", python_callable=task_load_gold, op_args=[t_silver.output]
+    )  # XComArg des events Silver
 
     t_bronze >> t_silver >> t_gold
