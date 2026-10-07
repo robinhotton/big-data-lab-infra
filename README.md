@@ -225,7 +225,17 @@ python setup_datasets.py --csv-rows 100000         # CSV réduits (développemen
 | MinIO — API S3 | <http://localhost:9000> | — |
 | Airflow | <http://localhost:8080> | `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` |
 
-Avec les valeurs de lab par défaut (`.env.example`) : MinIO `minioadmin` / `minioadmin123`, Airflow `admin` / `admin`.
+> ### ⚠️ Deux logins distincts — ne pas les échanger
+>
+> | Page | Login | Mot de passe |
+> | --- | --- | --- |
+> | **Airflow** <http://localhost:8080/login/> | `admin` | `admin` |
+> | **MinIO** <http://localhost:9001/login> | `minioadmin` | `minioadmin123` |
+>
+> Chaque page refuse l'identifiant de l'autre : `minioadmin` sur Airflow, ou `admin`
+> sur MinIO, affiche « Invalid login ». Ce n'est pas un bug — ce sont deux services
+> et deux comptes. Et `:9000` est l'API S3, pas une page de login : elle ne montre
+> rien dans un navigateur.
 
 ### Configuration (`.env`)
 
