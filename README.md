@@ -490,6 +490,8 @@ L'état de la stack est documenté dans [`docs/`](docs/) :
 - [`docs/AUDIT.md`](docs/AUDIT.md) — bonnes pratiques en place, anomalies relevées (par gravité)
 - [`docs/HARDENING-ROADMAP.md`](docs/HARDENING-ROADMAP.md) — plan de rigidification V2/V3
   (CI, tests smoke, durcissement, migration `pgsty/silo`)
+- [`docs/adr/001-logging-style.md`](docs/adr/001-logging-style.md) — ADR : pourquoi
+  `logger.info("%s", arg)` plutôt qu'un f-string
 
 ---
 
@@ -505,9 +507,11 @@ big-data-lab-infra/
 ├── requirements.txt        ← dépendances Python (runtime + dev : pytest, ruff, moto)
 ├── pyproject.toml          ← config ruff (lint) + pytest
 ├── .github/workflows/ci.yml ← CI : lint + tests + smoke test + supply chain
-├── docs/                   ← audit et roadmap de rigidification
+├── docs/                   ← audit, roadmap et décisions d'architecture
 │   ├── AUDIT.md                      ← bonnes pratiques + anomalies par gravité
-│   └── HARDENING-ROADMAP.md          ← plan V2 (CI, tests, durcissement) / V3 (silo)
+│   ├── HARDENING-ROADMAP.md          ← plan V2 (CI, tests, durcissement) / V3 (silo)
+│   └── adr/                          ← Architecture Decision Records
+│       └── 001-logging-style.md      ← style de logging : %s, pas de f-string
 ├── scripts/
 │   ├── minio-init.sh                  ← crée bucket data-lake + SSE-S3 + lifecycle
 │   ├── datasets-init.sh               ← pip install + setup_datasets.py
