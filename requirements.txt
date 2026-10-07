@@ -13,5 +13,5 @@ pyarrow==16.1.0        # Parquet (setup_datasets.py + tests taxi)
 
 # ── Dev (tests / lint hors Docker) ──────────────────────────────────────────
 pytest==8.3.2
-ruff==0.6.3
+ruff==0.16.8
 moto[s3]==5.0.20       # mock S3 pour tester extract/load sans MinIO

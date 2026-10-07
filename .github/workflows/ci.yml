@@ -66,7 +66,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Démarrer la stack et vérifier les healthchecks
-        run: ./scripts/smoke-test.sh
+        # `bash script` et pas `./script` : ne dépend pas du bit exécutable
+        # préservé ou non par le checkout (cf. core.filemode).
+        run: bash scripts/smoke-test.sh
 
       - name: Prouver que les images sont téléchargeables (supply chain)
         if: always()
@@ -89,7 +91,7 @@ jobs:
           docker compose -p lab-smoke --env-file .env \
             -f docker-compose.yml -f docker-compose.smoke.yml \
             logs --no-color > reports/stack/logs.txt 2>&1 || true
-          ./scripts/stack-status.sh > reports/stack/status.txt 2>&1 || true
+          bash scripts/stack-status.sh > reports/stack/status.txt 2>&1 || true
 
       - name: Logs de la stack (artifact)
         if: always()
