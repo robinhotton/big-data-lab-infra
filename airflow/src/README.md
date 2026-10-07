@@ -4,7 +4,7 @@ Ce dossier contient les modules métier exécutés par le DAG `orders_pipeline`
 (Bronze → Silver → Gold) : `config.py`, `extract.py`, `transform.py`, `load.py`.
 
 > [!IMPORTANT] Source de vérité = le cours
-> Ce dossier est un **patch aligné sur le dépôt de cours** `cours-big-data-local-2j`
+> Ce dossier est un **patch aligné sur le dépôt de cours** `cours-big-data-cloud`
 > (dossier `CODE/`). Les apprenants partent de `CODE/` et **copient ces fichiers** ici
 > au TP2 — les deux versions partagent les mêmes contrats (`MinIOConfig.from_env`,
 > `extract_bronze`, `transform_silver`, `aggregate_gold`, etc.).

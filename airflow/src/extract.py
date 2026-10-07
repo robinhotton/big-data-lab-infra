@@ -1,6 +1,6 @@
 """extract.py — Bronze : lire les JSON orders de MinIO (Python pur, sans pandas).
 
-Version *lab* de `CODE/extract.py` du cours (cours-big-data-local-2j). Mêmes contrats :
+Version *lab* de `CODE/extract.py` du cours (cours-big-data-cloud). Mêmes contrats :
 `parse_jsonl`, `list_orders_for_date`, `extract_bronze`.
 
 Bronze = ingestion brute : on lit les fichiers JSON `raw/orders/` du jour et on

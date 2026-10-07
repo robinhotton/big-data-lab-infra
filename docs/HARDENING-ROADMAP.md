@@ -29,7 +29,8 @@ durcissement sur branche dédiée, **V3** = migration de ligne de support MinIO.
 - Lint repo vert (ruff : 24 erreurs → 0) — ✅
 - Dépendances de test réunies dans `requirements.txt` (moto, pyarrow) — ✅
 
-**Partiel / à finir** : fail-fast sur les secrets dans `config.py` (A7), lifecycle idempotente dans `minio-init.sh` (A8), alignement doc XCom/Parquet (A10).
+**Partiel / à finir** : fail-fast sur les secrets dans `config.py` (A7).
+**Corrigé en fin de V2** : lifecycle idempotente (A8), alignement doc (A10).
 **Reporté en V3** : Airflow 2.x (A11), moins de privilège MinIO (A3/A4), image Airflow custom (A5), pin par digest (V2.3).
 
 Chaque item est indépendant et découple en commit séparé.
@@ -157,19 +158,21 @@ réel en salle).
 
 - `config.py` : **fail-fast** si `MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY` absentes
   (supprimer les defaults de lab) — le lab continue de passer par le compose
-- `scripts/minio-init.sh` : rendre la lifecycle idempotente (`mc ilm rule ls`
-  avant ajout)
-- Un unique `requirements.txt` source de vérité pour les deps runtime + dev
-  (dont `pyarrow`, aujourd'hui manquant côté Airflow)
+  ⏳ à faire
+- `scripts/minio-init.sh` : lifecycle idempotente (`ensure_expiry_rule` vérifie
+  `mc ilm rule ls` avant ajout) — ✅ fait
+- Un unique `requirements.txt` source de vérité pour les deps runtime + dev — ✅ fait
 
 **Effort.** 0,5 j. **Risque.** Faible.
 
-### V2.8 — Relecture doc ◐ partiel *(audit A10)*
+### V2.8 — Relecture doc ✅ fait *(audit A10)*
 
-- README : aligner la description du passage de données (XCom, pas staging
-  Parquet) sur le code réel
-- README : indiquer que `moto`/`pyarrow` sont nécessaires pour certains tests
-- Décrire la CI et comment la rejouer en local
+- README = **utilisation** (apprenant) / `docs/README.md` = **vérification
+  d'intégrité** (mainteneur) — deux docs séparées
+- README : description du passage de données alignée (XCom, pas staging Parquet)
+- `tests/README.md` aligné sur la suite réelle (`moto` inclus, plus de
+  `pytest-airflow`)
+- Noms de dépôt de cours alignés (`cours-big-data-cloud`)
 
 **Effort.** 0,25 j.
 

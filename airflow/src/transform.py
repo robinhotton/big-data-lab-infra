@@ -1,6 +1,6 @@
 """transform.py — Code métier Silver (Python pur, sans pandas ni Spark).
 
-Version *lab* de `CODE/transform.py` du cours (cours-big-data_local-2j). Mêmes
+Version *lab* de `CODE/transform.py` du cours (cours-big-data-cloud). Mêmes
 contrats : `deduplicate`, `compute_total_price`, `filter_valid_status`,
 `validate_event`, `transform_silver`. Utilisée par exo8, TP2 et le DAG.
 

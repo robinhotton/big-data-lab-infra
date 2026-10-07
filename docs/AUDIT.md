@@ -13,7 +13,7 @@ Date : 2026-10-07 · Portée : `docker-compose.yml`, `scripts/`, `airflow/`, `te
 | --- | --- |
 | État général | Bon pour un lab pédagogique mono-utilisateur local |
 | Bloquant | Images MinIO upstream archivées → **corrigé en V1** (voir §2.1) |
-| Dette principale | Pas de CI, secrets lab exposés sans restriction réseau, deps installées au démarrage |
+| Dette principale | Secrets lab exposés sans restriction réseau, deps installées au démarrage → partiellement traité en V2 (CI + tests, voir `HARDENING-ROADMAP.md`) |
 | Dette connue | Airflow `2.9.3` (ligne 2.9, CVE), fork `pgsty/minio` gelé |
 
 La stack est volontairement **minimaliste** : pas de Spark, pas de Postgres métier,
@@ -63,7 +63,7 @@ Conséquence : la stack ne démarre plus pour aucun apprenant.
 communautaire, drop-in compatible). Voir `docs/HARDENING-ROADMAP.md` pour la
 migration V2/V3 vers la ligne maintenue `pgsty/silo`.
 
-### A2 — 🟠 Élevée · Pagination S3 absente · `airflow/src/extract.py`
+### A2 — 🟠 Élevée · Pagination S3 absente · `airflow/src/extract.py` — ✅ corrigé en V2
 
 ```python
 resp = s3.list_objects_v2(Bucket=cfg.bucket, Prefix=prefix)
@@ -77,7 +77,8 @@ Le dataset du lab reste sous 1000 clés par préfixe, donc invisible en TP.
 Mais c'est un défaut exactement du type « ça marche en cours, ça casse en
 production » — et c'est un bon sujet de TP.
 
-→ À corriger en V2 (ou en exercice).
+→ **Corrigé en V2** : `_list_keys()` utilise `ContinuationToken` (toutes pages).
+Test : `tests/airflow_src/test_extract.py`.
 
 ### A3 — 🟡 Moyenne · Connexion Airflow en JSON dans le Compose · `docker-compose.yml`
 
@@ -116,13 +117,13 @@ Idem dans `scripts/datasets-init.sh` (`pip install` à chaque run du one-shot).
 → V2 : image Airflow custom (`Dockerfile` qui pré-installe les deps), ou
   `requirements.txt` monté + `pip install` au build.
 
-### A6 — 🟡 Moyenne · Aucune CI · (absent)
+### A6 — 🟡 Moyenne · Aucune CI · (absent) — ✅ corrigé en V2
 
 Rien ne vérifie avant un TP que le repo tourne encore. C'est exactement la
 panne qu'on vient de subir : une image a disparu et personne ne l'a su.
 
-→ V2 : GitHub Actions (lint + pytest + smoke test compose). Voir
-  `docs/HARDENING-ROADMAP.md`.
+→ **Corrigé en V2** : GitHub Actions (`lint-test` + `compose-smoke` + cron
+mensuel supply-chain). Voir `docs/README.md`.
 
 ### A7 — 🟢 Faible · Credentials en clair dans les defaults · `airflow/src/config.py`
 
@@ -138,14 +139,14 @@ bucket avec les credentials fournis par défaut.
 Acceptable ici (lab, creds documentées), mais à retirer dès que le code sort
 du lab — fail-fast si la variable est absente.
 
-### A8 — 🟢 Faible · Règles de lifecycle qui s'accumulent · `scripts/minio-init.sh`
+### A8 — 🟢 Faible · Règles de lifecycle qui s'accumulent · `scripts/minio-init.sh` — ✅ corrigé en V2
 
 `mc ilm add` ajoute une règle à chaque exécution. Sur un volume persistant,
 relancer `datasets-init` / recréer le service `minio-init` duplique les règles
 (observé : une règle par run).
 
-→ V2 : `mc ilm rule ls | grep` avant ajout, ou `mc ilm rule rm` + re-add, ou
-  poser la règle via l'API/`mc ilm rule import` déclaratif.
+→ **Corrigé en V2** : `ensure_expiry_rule()` vérifie `mc ilm rule ls` avant
+ajout — idempotent. Rejoué par le smoke test.
 
 ### A9 — 🟢 Faible · Pins de versions divergents · `requirements.txt` / `docker-compose.yml`
 
@@ -156,15 +157,15 @@ Parquet) ne l'est que dans `scripts/datasets-init.sh` et pas dans
 
 → V2 : un fichier de deps unique source de vérité.
 
-### A10 — 🟢 Faible · Doc désalignée · `README.md`, `.gitignore`
+### A10 — 🟢 Faible · Doc désalignée · `README.md`, `.gitignore` — ✅ corrigé en V2
 
-- le README décrit un staging **Parquet** dans `airflow_data`, alors que le DAG
-  `orders_pipeline` passe par **XCom** (200 events/jour) — le commentaire du DAG
-  est plus juste que le README ;
+- le README décrivait un staging **Parquet** dans `airflow_data`, alors que le
+  DAG `orders_pipeline` passe par **XCom** (200 events/jour) ;
 - `.gitignore` ignore `.claude`, ce qui peut surprendre selon les conventions ;
-- le README mentionne `pytest-airflow` / `moto` qui ne sont pas dans les deps.
+- le README mentionnait `pytest-airflow` qui n'est pas dans les deps.
 
-→ V2 : relecture doc.
+→ **Corrigé en V2** : README = utilisation, `docs/README.md` = intégrité,
+`moto`/`pytest-airflow` alignés sur `requirements.txt`, description XCom.
 
 ### A11 — ℹ️ Info · Airflow 2.9.3 · `docker-compose.yml`
 

@@ -10,8 +10,6 @@ Chaque apprenant lance **sa propre stack en local** — un seul bucket `data-lak
 > AGPLv3 du serveur MinIO, drop-in compatible (binaire `minio`, variables
 > `MINIO_*`, format de données conservés, console admin restaurée). Pourquoi ce
 > choix et ce qu'il implique : voir [§ Stockage](#stockage--pourquoi-pgstyminio).
-> Migration prévue vers la ligne maintenue `pgsty/silo` en V2/V3 :
-> [`docs/HARDENING-ROADMAP.md`](docs/HARDENING-ROADMAP.md).
 
 > Ce dépôt est le volet **infrastructure** de la formation. Les supports de cours, TP et annexes pédagogiques vivent dans le dépôt séparé [`cours-big-data-cloud`](https://github.com/robinhotton/cours-big-data-cloud).
 
@@ -48,7 +46,7 @@ La stack tient dans 6 conteneurs Docker et 4 volumes nommés :
               airflow-init    → db migrate + user admin (|| true)
 
    tous les services sur le réseau lab-net
-   volumes nommés Airflow : airflow_data (staging Parquet)
+   volumes nommés Airflow : airflow_data (données Airflow)
                             airflow_logs  (logs)
 ```
 
@@ -147,8 +145,7 @@ ses volumes.
   [`pgsty/silo`](https://silo.pgsty.com/). Le tag `RELEASE.2026-08-04T00-00-00Z`
   utilisé ici reste publié et téléchargeable en l'état, mais ne recevra plus de
   correctifs. C'est une dette assumée pour la V1 (réparer vite pour les
-  apprenants) : la migration est planifiée dans
-  [`docs/HARDENING-ROADMAP.md`](docs/HARDENING-ROADMAP.md).
+  apprenants) : la migration est planifiée dans le dépôt de maintenance.
 
 ---
 
@@ -278,7 +275,7 @@ airflow/
 │   └── minio_conn_id_example.py     ← exemple : S3Hook + conn_id
 └── src/                            ← code métier (pas d'Airflow dedans)
     ├── config.py                  ← endpoints MinIO + chemins (dataclass)
-    ├── extract.py                 ← Bronze : JSON MinIO → Parquet staging
+    ├── extract.py                 ← Bronze : lit les JSON orders (paginé)
     ├── transform.py                ← Silver : typage, dédup, total_price
     └── load.py                     ← Gold : agrégation CA → MinIO (idempotent)
 ```
@@ -390,158 +387,44 @@ docker compose restart airflow-webserver
 
 ---
 
-## Tests & lint
-
-Le code métier (`airflow/src/`) est conçu pour être testé **hors Docker et hors
-Airflow**. La suite couvre `config`, `extract`, `transform`, `load` et le contrat
-des DAGs (moteur S3 mocké avec `moto`).
-
-```bash
-pip install -r requirements.txt   # installe aussi pytest + ruff + mypy + moto
-pytest -q                         # lance la suite
-pytest -q -k extract              # filtre par nom
-
-ruff check .                      # lint
-ruff check --fix .                # corrige les erreurs auto (imports, etc.)
-ruff format .                     # formate le dépôt
-ruff format --check .             # vérifie sans toucher (c'est ce que la CI exige)
-mypy                              # vérifie les types du code métier (airflow/src/)
-```
-
-### Tests smoke (intégration réelle)
-
-`scripts/smoke-test.sh` démarre la stack dans un **projet isolé** (`lab-smoke`,
-ports dépubliés) et vérifie bout en bout que le lab est réellement utilisable :
-
-1. MinIO, Postgres et Airflow passent `healthy` ;
-2. `minio-init` crée le bucket `data-lake`, le chiffrement SSE-S3 et les règles
-   de lifecycle, puis est **relancé pour prouver l'idempotence** ;
-3. les jobs one-shot (`airflow-init`, `datasets-init`) sortent en exit 0.
-
-```bash
-./scripts/smoke-test.sh
-```
-
-> Le smoke test peut tourner **en parallèle d'un lab déjà démarré** : il n'occupe
-> aucun port publié (voir `docker-compose.smoke.yml`).
-
-### CI GitHub Actions
-
-`.github/workflows/ci.yml` lance automatiquement :
-
-| Job     | Déclencheur                | Contenu                                              |
-|---------|----------------------------|------------------------------------------------------|
-| lint & tests | push / PR            | `ruff check` + `ruff format --check` + `mypy` + `pytest -q` (rapport JUnit en artifact) |
-| smoke   | push / PR                  | `scripts/smoke-test.sh` + `docker pull` des images épinglées |
-| smoke   | cron mensuel (le 3 à 6h17) | re-verification supply-chain des images              |
-
-Les logs de la stack et les rapports sont téléchargeables en **artifacts GitHub**
-(rétention 14 jours) même quand le job échoue.
-
-### Contrôle & observabilité (formateur)
-
-```bash
-./scripts/stack-status.sh              # vue ops complète en une commande
-./scripts/stack-status.sh --offline    # sans vérification réseau des images
-STATUS_SECTIONS=svc,err ./scripts/stack-status.sh   # sections ciblées
-```
-
-Affiche : état des services **et ExitCode des jobs one-shot**, erreurs récentes
-(bruit du premier `db migrate` filtré), usage disque des volumes du lab,
-rotation des logs Docker, disponibilité des images épinglées.
-
-**Logs :**
-
-```bash
-docker compose logs -f airflow-scheduler          # stdout des conteneurs
-docker compose logs -f minio
-```
-
-- Les logs Docker sont **rotés** (`json-file`, max 10 Mo × 3 fichiers) sur tous
-  les services — la stack ne remplit plus le disque de l'hôte.
-- Les logs Airflow des tâches sont enregistrés dans MinIO :
-  `s3://data-lake/airflow-logs/` (via `AIRFLOW__LOGGING__REMOTE_*`), avec une
-  règle de lifecycle de **30 jours**.
-- Les données `raw/` ont une règle de **365 jours**.
-
-```bash
-docker compose exec minio-init mc ilm rule ls local/data-lake   # lifecycle actif
-docker compose exec minio-init mc admin info local              # santé MinIO
-```
-
-### Migration de nom de projet (une fois)
-
-Depuis V2, le projet Compose est épinglé avec `name: lab` pour que les noms de
-conteneurs soient stables (`lab-minio`, `lab-postgres`, …) — prérequis du smoke
-test et de `stack-status.sh`. Si vous montez la stack **avant** cette version,
-vos conteneurs existants sont encore rattachés à l'ancien nom de projet
-(`big-data-lab-infra`). Une seule fois :
-
-```bash
-docker compose -p big-data-lab-infra down && docker compose up -d
-```
-
-Les volumes (données MinIO, Postgres) sont conservés.
-
-### Audit & roadmap
-
-L'état de la stack est documenté dans [`docs/`](docs/) :
-
-- [`docs/AUDIT.md`](docs/AUDIT.md) — bonnes pratiques en place, anomalies relevées (par gravité)
-- [`docs/HARDENING-ROADMAP.md`](docs/HARDENING-ROADMAP.md) — plan de rigidification V2/V3
-  (CI, tests smoke, durcissement, migration `pgsty/silo`)
-- [`docs/adr/001-logging-style.md`](docs/adr/001-logging-style.md) — ADR : pourquoi
-  `logger.info("%s", arg)` plutôt qu'un f-string
-
----
-
-## Structure du dépôt
+## Structure du dépôt (version apprenant)
 
 ```text
 big-data-lab-infra/
-├── docker-compose.yml      ← définition des services (MinIO + Airflow)
-├── docker-compose.smoke.yml ← overlay smoke test (ports dépubliés)
-├── .env.example            ← template de configuration (11 variables)
-├── .env                    ← votre config locale (gitignored)
-├── setup_datasets.py       ← chargement des datasets dans MinIO (RNG seedé)
-├── requirements.txt        ← dépendances Python (runtime + dev : pytest, ruff, moto)
-├── pyproject.toml          ← config ruff (lint) + pytest
-├── .github/workflows/ci.yml ← CI : lint + tests + smoke test + supply chain
-├── docs/                   ← audit, roadmap et décisions d'architecture
-│   ├── AUDIT.md                      ← bonnes pratiques + anomalies par gravité
-│   ├── HARDENING-ROADMAP.md          ← plan V2 (CI, tests, durcissement) / V3 (silo)
-│   └── adr/                          ← Architecture Decision Records
-│       └── 001-logging-style.md      ← style de logging : %s, pas de f-string
+├── docker-compose.yml       ← services (MinIO + Postgres + Airflow)
+├── docker-compose.smoke.yml ← overlay interne (ports dépubliés)
+├── .env.example             ← template de configuration (10 variables)
+├── .env                     ← votre config locale (gitignored)
+├── setup_datasets.py        ← seed des datasets (RNG seedé)
+├── requirements.txt         ← dépendances Python
+├── README.md                ← ce document
 ├── scripts/
-│   ├── minio-init.sh                  ← crée bucket data-lake + SSE-S3 + lifecycle
-│   ├── datasets-init.sh               ← pip install + setup_datasets.py
-│   ├── airflow-init.sh                ← db migrate + user admin
-│   ├── smoke-test.sh                  ← test d'intégration de la stack isolée
-│   └── stack-status.sh                ← vue ops : état, logs, volumes, images
-├── airflow/
-│   ├── dags/               ← DAGs (orchestration uniquement)
-│   │   ├── orders_pipeline_dag.py    ← Bronze→Silver→Gold (boto3 direct)
-│   │   └── minio_conn_id_example.py  ← exemple S3Hook + conn_id
-│   └── src/               ← code métier testable hors Airflow
-│       ├── config.py                  ← endpoints MinIO + chemins (dataclass)
-│       ├── extract.py                 ← Bronze : JSON MinIO → Parquet (paginé)
-│       ├── transform.py               ← Silver : nettoyage + enrichissement
-│       └── load.py                    ← Gold : agrégation → MinIO
-└── tests/                  ← suite pytest (unit + contrat DAGs + moto S3)
-    ├── conftest.py                    ← fixtures : vars d'env, staging temporaire
-    ├── test_dag_contract.py           ← contrat des DAGs (AST, sans Airflow)
-    ├── README.md                      ← comment lancer / étendre les tests
-    └── airflow_src/
-        ├── test_config.py             ← MinIOConfig lit les env vars
-        ├── test_transform.py          ← dédup, total_price, filtre status
-        ├── test_extract.py            ← pagination S3 + parse JSONL + moto
-        └── test_load.py               ← agrégation Gold + écriture idempotente
+│   ├── minio-init.sh        ← bucket data-lake + SSE-S3 + lifecycle
+│   ├── datasets-init.sh     ← pip install + setup_datasets.py
+│   └── airflow-init.sh      ← db migrate + user admin
+└── airflow/
+    ├── dags/                ← orchestration uniquement
+    │   ├── orders_pipeline_dag.py    ← Bronze→Silver→Gold (boto3 direct)
+    │   └── minio_conn_id_example.py  ← exemple S3Hook + conn_id
+    └── src/                 ← code métier testable hors Airflow
+        ├── config.py        ← endpoints MinIO + chemins (dataclass)
+        ├── extract.py       ← Bronze : lit les JSON orders (paginé)
+        ├── transform.py     ← Silver : typage, dédup, total_price
+        └── load.py          ← Gold : agrégation CA → MinIO (idempotent)
 ```
 
-> Staging Parquet et logs Airflow vivent dans des **volumes Docker nommés**
-> (`airflow_data`, `airflow_logs`) — pas sur le disque hôte. C'est normal de ne pas
-> les voir : ce sont des détails internes entre tâches.
->
+> Les volumes Airflow (`airflow_data`, `airflow_logs`) sont des **volumes Docker
+> nommés** — pas sur le disque hôte. C'est normal de ne pas les voir.
+
+---
+
+## Aller plus loin — mainteneur
+
+La vérification d'intégrité de la stack (tests, lint, smoke test, CI,
+observabilité, audit) est documentée dans
+[`docs/README.md`](https://github.com/robinhotton/big-data-lab-infra/blob/main/docs/README.md)
+du dépôt git. Elle n'est pas distribuée dans le zip apprenant.
+
 > L'ancien modèle multi-utilisateur (déploiement centralisé sur Hidora, N buckets
 > par binôme, users SSH/MinIO/Airflow) est conservé dans la branche
 > `archive/multi-user-hidora`. La branche `main` est **100 % local Docker**.

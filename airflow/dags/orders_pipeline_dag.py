@@ -1,6 +1,6 @@
 """orders_pipeline_dag.py — DAG Airflow : pipeline commandes Bronze -> Silver -> Gold.
 
-Version *lab* du DAG `orders_pipeline` du cours (cours-big-data-local-2j, TP2). Elle
+Version *lab* du DAG `orders_pipeline` du cours (cours-big-data-cloud, TP2). Elle
 orchestre les modules metier alignes dans `airflow/src/` (`config`, `extract`,
 `transform`, `load`), en Python pur (boto3 + stdlib), sans pandas ni Spark.
 

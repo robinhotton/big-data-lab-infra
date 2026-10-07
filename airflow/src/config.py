@@ -1,7 +1,7 @@
 """config.py — Configuration MinIO du pipeline orders (Python pur, alignée sur le cours).
 
 FACTEUR DE PATCH : ce fichier est la version *lab* de `CODE/config.py` du dépôt de
-cours (cours-big-data-local-2j). Il en reprend le contrat (dataclass `MinIOConfig`,
+cours (cours-big-data-cloud). Il en reprend le contrat (dataclass `MinIOConfig`,
 `from_env()`, `get_s3_client()`), mais les valeurs par défaut pointent vers le réseau
 Docker du lab (endpoint `http://minio:9000`, credentials explicites) alors que
 `CODE/config.py` vise un usage hors Docker (`localhost:9000`).

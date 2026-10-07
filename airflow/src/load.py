@@ -1,6 +1,6 @@
 """load.py — Gold : agrégation CA et écriture idempotente dans MinIO (Python pur).
 
-Version *lab* de `CODE/load.py` du cours (cours-big-data-local-2j). Mêmes contrats :
+Version *lab* de `CODE/load.py` du cours (cours-big-data-cloud). Mêmes contrats :
 `aggregate_gold`, `write_json_to_minio`, `write_quarantine`, `load_gold`.
 
 Silver → Gold : on agrège le CA par status, on écrit `curated/ca_by_status_{ds}.json`
