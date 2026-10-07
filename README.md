@@ -10,8 +10,6 @@ Chaque apprenant lance **sa propre stack en local** — un seul bucket `data-lak
 > AGPLv3 du serveur MinIO, drop-in compatible (binaire `minio`, variables
 > `MINIO_*`, format de données conservés, console admin restaurée). Pourquoi ce
 > choix et ce qu'il implique : voir [§ Stockage](#stockage--pourquoi-pgstyminio).
-> Migration prévue vers la ligne maintenue `pgsty/silo` en V2/V3 :
-> [`docs/HARDENING-ROADMAP.md`](docs/HARDENING-ROADMAP.md).
 
 > Ce dépôt est le volet **infrastructure** de la formation. Les supports de cours, TP et annexes pédagogiques vivent dans le dépôt séparé [`cours-big-data-cloud`](https://github.com/robinhotton/cours-big-data-cloud).
 
@@ -48,7 +46,7 @@ La stack tient dans 6 conteneurs Docker et 4 volumes nommés :
               airflow-init    → db migrate + user admin (|| true)
 
    tous les services sur le réseau lab-net
-   volumes nommés Airflow : airflow_data (staging Parquet)
+   volumes nommés Airflow : airflow_data (données Airflow)
                             airflow_logs  (logs)
 ```
 
@@ -147,8 +145,7 @@ ses volumes.
   [`pgsty/silo`](https://silo.pgsty.com/). Le tag `RELEASE.2026-08-04T00-00-00Z`
   utilisé ici reste publié et téléchargeable en l'état, mais ne recevra plus de
   correctifs. C'est une dette assumée pour la V1 (réparer vite pour les
-  apprenants) : la migration est planifiée dans
-  [`docs/HARDENING-ROADMAP.md`](docs/HARDENING-ROADMAP.md).
+  apprenants) : la migration est planifiée dans le dépôt de maintenance.
 
 ---
 
@@ -225,7 +222,17 @@ python setup_datasets.py --csv-rows 100000         # CSV réduits (développemen
 | MinIO — API S3 | <http://localhost:9000> | — |
 | Airflow | <http://localhost:8080> | `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` |
 
-Avec les valeurs de lab par défaut (`.env.example`) : MinIO `minioadmin` / `minioadmin123`, Airflow `admin` / `admin`.
+> ### ⚠️ Deux logins distincts — ne pas les échanger
+>
+> | Page | Login | Mot de passe |
+> | --- | --- | --- |
+> | **Airflow** <http://localhost:8080/login/> | `admin` | `admin` |
+> | **MinIO** <http://localhost:9001/login> | `minioadmin` | `minioadmin123` |
+>
+> Chaque page refuse l'identifiant de l'autre : `minioadmin` sur Airflow, ou `admin`
+> sur MinIO, affiche « Invalid login ». Ce n'est pas un bug — ce sont deux services
+> et deux comptes. Et `:9000` est l'API S3, pas une page de login : elle ne montre
+> rien dans un navigateur.
 
 ### Configuration (`.env`)
 
@@ -268,16 +275,22 @@ airflow/
 │   └── minio_conn_id_example.py     ← exemple : S3Hook + conn_id
 └── src/                            ← code métier (pas d'Airflow dedans)
     ├── config.py                  ← endpoints MinIO + chemins (dataclass)
-    ├── extract.py                 ← Bronze : JSON MinIO → Parquet staging
+    ├── extract.py                 ← Bronze : lit les JSON orders (paginé)
     ├── transform.py                ← Silver : typage, dédup, total_price
     └── load.py                     ← Gold : agrégation CA → MinIO (idempotent)
 ```
 
-Le DAG n'est qu'une **fine couche d'orchestration** : `from src import extract, transform, load`. Les tâches communiquent via **staging Parquet** (volume `airflow_data`, monté en `/opt/airflow/data`) plutôt que par XCom — adapté aux volumes pandas.
+Le DAG n'est qu'une **fine couche d'orchestration** : il appelle les modules métier
+(`from extract import ...`, `from load import ...`) sans dupliquer de logique. Les
+tâches communiquent via **XCom** (200 events/jour — volume léger, pas de staging
+fichier). Un DAG qui passerait ses données par variable globale ne fonctionnerait pas
+en LocalExecutor : chaque tâche tourne dans un processus séparé.
 
 > **Pourquoi `src/` ?** Le code métier est testable indépendamment d'Airflow :
-> `python -m airflow.src.extract` fonctionne hors conteneur. C'est la bonne pratique
-> (séparation orchestration / métier), utile à montrer en TP3.
+> `python airflow/src/extract.py` fonctionne hors conteneur (il ne manque que
+> l'endpoint MinIO — passer `MINIO_ENDPOINT=http://localhost:9000`). C'est la bonne
+> pratique (séparation orchestration / métier), utile à montrer en TP3. Les imports
+> sont « à plat » (`from config import ...`), comme dans `CODE/` du cours.
 
 ### Deux façons d'accéder à MinIO depuis un DAG
 
@@ -328,10 +341,10 @@ jupyter notebook
 Credentials à renseigner dans le notebook :
 
 ```python
-MINIO_ENDPOINT   = "http://localhost:9000"
+MINIO_ENDPOINT = "http://localhost:9000"
 MINIO_ACCESS_KEY = "minioadmin"
 MINIO_SECRET_KEY = "minioadmin123"
-BUCKET           = "data-lake"
+BUCKET = "data-lake"
 ```
 
 Test de connexion :
@@ -374,73 +387,44 @@ docker compose restart airflow-webserver
 
 ---
 
-## Tests & lint
-
-Le code métier (`airflow/src/`) est conçu pour être testé **hors Docker et hors
-Airflow**. Un squelette de tests est fourni dans `tests/` (amorce du TP3 N3 qui
-prévoit des tests pytest).
-
-```bash
-pip install -r requirements.txt   # installe aussi pytest + ruff
-pytest                            # lance les tests
-pytest -k transform               # filtre par nom
-
-ruff check .                      # lint
-ruff check --fix .                # corrige les erreurs auto (imports, etc.)
-```
-
-> Les tests `transform` nécessitent `pyarrow` (Parquet) — ils sont skipés
-> automatiquement si absent. Voir `tests/README.md` pour étendre la suite
-> (mock MinIO avec `moto`, valider les DAGs avec `pytest-airflow`).
-
-### Audit & roadmap
-
-L'état de la stack est documenté dans [`docs/`](docs/) :
-
-- [`docs/AUDIT.md`](docs/AUDIT.md) — bonnes pratiques en place, anomalies relevées (par gravité)
-- [`docs/HARDENING-ROADMAP.md`](docs/HARDENING-ROADMAP.md) — plan de rigidification V2/V3
-  (CI, tests smoke, durcissement, migration `pgsty/silo`)
-
----
-
-## Structure du dépôt
+## Structure du dépôt (version apprenant)
 
 ```text
 big-data-lab-infra/
-├── docker-compose.yml      ← définition des services (MinIO + Airflow)
-├── .env.example            ← template de configuration (11 variables)
-├── .env                    ← votre config locale (gitignored)
-├── setup_datasets.py       ← chargement des datasets dans MinIO (RNG seedé)
-├── requirements.txt        ← dépendances Python (runtime + dev : pytest, ruff)
-├── pyproject.toml          ← config ruff (lint) + pytest
-├── docs/                   ← audit et roadmap de rigidification
-│   ├── AUDIT.md                      ← bonnes pratiques + anomalies par gravité
-│   └── HARDENING-ROADMAP.md          ← plan V2 (CI, tests, durcissement) / V3 (silo)
-├── scripts/                ← entrypoints one-shot montés dans les conteneurs
-│   ├── minio-init.sh                  ← crée bucket data-lake + lifecycle
-│   ├── datasets-init.sh               ← pip install + setup_datasets.py
-│   └── airflow-init.sh                ← db migrate + user admin
-├── airflow/
-│   ├── dags/               ← DAGs (orchestration uniquement)
-│   │   ├── orders_pipeline_dag.py    ← Bronze→Silver→Gold (boto3 direct)
-│   │   └── minio_conn_id_example.py  ← exemple S3Hook + conn_id
-│   └── src/               ← code métier testable hors Airflow
-│       ├── config.py                  ← endpoints MinIO + chemins (dataclass)
-│       ├── extract.py                 ← Bronze : JSON MinIO → Parquet
-│       ├── transform.py               ← Silver : nettoyage + enrichissement
-│       └── load.py                    ← Gold : agrégation → MinIO
-└── tests/                  ← squelette de tests pytest (amorce TP3 N3)
-    ├── conftest.py                    ← fixtures : vars d'env, staging temporaire
-    ├── README.md                      ← comment lancer / étendre les tests
-    └── airflow_src/
-        ├── test_config.py             ← MinIOConfig lit les env vars
-        └── test_transform.py          ← dédup, total_price, filtre status
+├── docker-compose.yml       ← services (MinIO + Postgres + Airflow)
+├── docker-compose.smoke.yml ← overlay interne (ports dépubliés)
+├── .env.example             ← template de configuration (10 variables)
+├── .env                     ← votre config locale (gitignored)
+├── setup_datasets.py        ← seed des datasets (RNG seedé)
+├── requirements.txt         ← dépendances Python
+├── README.md                ← ce document
+├── scripts/
+│   ├── minio-init.sh        ← bucket data-lake + SSE-S3 + lifecycle
+│   ├── datasets-init.sh     ← pip install + setup_datasets.py
+│   └── airflow-init.sh      ← db migrate + user admin
+└── airflow/
+    ├── dags/                ← orchestration uniquement
+    │   ├── orders_pipeline_dag.py    ← Bronze→Silver→Gold (boto3 direct)
+    │   └── minio_conn_id_example.py  ← exemple S3Hook + conn_id
+    └── src/                 ← code métier testable hors Airflow
+        ├── config.py        ← endpoints MinIO + chemins (dataclass)
+        ├── extract.py       ← Bronze : lit les JSON orders (paginé)
+        ├── transform.py     ← Silver : typage, dédup, total_price
+        └── load.py          ← Gold : agrégation CA → MinIO (idempotent)
 ```
 
-> Staging Parquet et logs Airflow vivent dans des **volumes Docker nommés**
-> (`airflow_data`, `airflow_logs`) — pas sur le disque hôte. C'est normal de ne pas
-> les voir : ce sont des détails internes entre tâches.
->
+> Les volumes Airflow (`airflow_data`, `airflow_logs`) sont des **volumes Docker
+> nommés** — pas sur le disque hôte. C'est normal de ne pas les voir.
+
+---
+
+## Aller plus loin — mainteneur
+
+La vérification d'intégrité de la stack (tests, lint, smoke test, CI,
+observabilité, audit) est documentée dans
+[`docs/README.md`](https://github.com/robinhotton/big-data-lab-infra/blob/main/docs/README.md)
+du dépôt git. Elle n'est pas distribuée dans le zip apprenant.
+
 > L'ancien modèle multi-utilisateur (déploiement centralisé sur Hidora, N buckets
 > par binôme, users SSH/MinIO/Airflow) est conservé dans la branche
 > `archive/multi-user-hidora`. La branche `main` est **100 % local Docker**.

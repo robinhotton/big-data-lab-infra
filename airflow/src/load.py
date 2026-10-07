@@ -1,6 +1,6 @@
 """load.py — Gold : agrégation CA et écriture idempotente dans MinIO (Python pur).
 
-Version *lab* de `CODE/load.py` du cours (cours-big-data-local-2j). Mêmes contrats :
+Version *lab* de `CODE/load.py` du cours (cours-big-data-cloud). Mêmes contrats :
 `aggregate_gold`, `write_json_to_minio`, `write_quarantine`, `load_gold`.
 
 Silver → Gold : on agrège le CA par status, on écrit `curated/ca_by_status_{ds}.json`
@@ -9,18 +9,22 @@ invalides de Silver partent en `quarantine/orders/{ds}.json` (pattern Quarantine
 
 Sans pandas ni Spark : agrégation via `collections.Counter`.
 """
+
 from __future__ import annotations
 
 import collections
 import json
+import logging
 
-from config import get_s3_client, MinIOConfig
+from config import MinIOConfig, get_s3_client
 from transform import transform_silver
+
+logger = logging.getLogger(__name__)
 
 
 def aggregate_gold(events: list[dict]) -> dict:
     """Agrège le CA par status à partir des événements Silver (sans pandas)."""
-    ca = collections.Counter()
+    ca: collections.Counter[str] = collections.Counter()
     for e in events:
         ca[e["status"]] += e["total_price"]
     return {
@@ -36,7 +40,7 @@ def write_json_to_minio(key: str, payload: dict) -> None:
     s3 = get_s3_client()
     body = json.dumps(payload, indent=2).encode("utf-8")
     s3.put_object(Bucket=cfg.bucket, Key=key, Body=body)
-    print(f"[Gold] écrit {len(body)} octets -> {key}")
+    logger.info("Gold : écrit %s octets -> %s", len(body), key)
 
 
 def write_quarantine(invalid: list[dict], ds: str) -> None:
@@ -60,7 +64,7 @@ def load_gold(ds: str = "2026-03-01") -> dict:
     write_json_to_minio(f"curated/ca_by_status_{ds}.json", gold)
     write_quarantine(invalid, ds)
 
-    print(f"[Gold] CA par status pour {ds} : {gold['ca_by_status']}")
+    logger.info("Gold : CA par status pour %s : %s", ds, gold["ca_by_status"])
     return gold
 
 

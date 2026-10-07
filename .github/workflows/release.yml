@@ -1,0 +1,56 @@
+# Release apprenants — à chaque tag `v*`, publie un zip de la stack
+# SANS l'outillage mainteneur (CI, tests, docs internes, outils ops).
+#
+# Le filtrage est fait par `.gitattributes` (`export-ignore`) : une seule
+# source de vérité, valable aussi en local via `git archive`.
+name: Release apprenants
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  dist:
+    name: Publier le zip de formation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construire l'archive (export-ignore appliqué)
+        run: |
+          git archive --format=zip -o "big-data-lab-${GITHUB_REF_NAME}.zip" HEAD
+          unzip -l "big-data-lab-${GITHUB_REF_NAME}.zip"
+
+      - name: Refuser un zip qui contiendrait de l'outillage mainteneur
+        run: |
+          z="big-data-lab-${GITHUB_REF_NAME}.zip"
+          echo "▶ Vérification que le zip reste « apprenant » :"
+          if unzip -l "$z" | grep -qE '(^| )(tests/|\.github/|docs/|pyproject\.toml|smoke-test\.sh|stack-status\.sh)'; then
+            echo "✗ fuites mainteneur détectées dans le zip :"
+            unzip -l "$z" | grep -E '(^| )(tests/|\.github/|docs/|pyproject\.toml|smoke-test\.sh|stack-status\.sh)'
+            echo "→ vérifier les règles export-ignore de .gitattributes"
+            exit 1
+          fi
+          echo "✓ zip propre, prêt pour les apprenants"
+
+      - name: Publier la Release GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          files: big-data-lab-${{ github.ref_name }}.zip
+          generate_release_notes: true
+          body: |
+            Distribution pour la formation **Big Data dans le Cloud**.
+
+            ```bash
+            unzip big-data-lab-${{ github.ref_name }}.zip
+            cd big-data-lab-infra
+            cp .env.example .env
+            docker compose up -d
+            ```
+
+            Ce zip contient la stack à démarrer. L'outillage de développement
+            (CI, tests, ADR, outils ops) reste dans le dépôt du formateur.

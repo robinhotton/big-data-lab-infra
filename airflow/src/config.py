@@ -1,19 +1,20 @@
 """config.py — Configuration MinIO du pipeline orders (Python pur, alignée sur le cours).
 
 FACTEUR DE PATCH : ce fichier est la version *lab* de `CODE/config.py` du dépôt de
-cours (cours-big-data-local-2j). Il en reprend le contrat (dataclass `MinIOConfig`,
+cours (cours-big-data-cloud). Il en reprend le contrat (dataclass `MinIOConfig`,
 `from_env()`, `get_s3_client()`), mais les valeurs par défaut pointent vers le réseau
 Docker du lab (endpoint `http://minio:9000`, credentials explicites) alors que
 `CODE/config.py` vise un usage hors Docker (`localhost:9000`).
 
-Il fonctionne dans les deux contextes d'import :
-  - `from config import ...`  (modules métier copiés dans airflow/src/, ex. TP2) ;
-  - `from src.config import ...`  (DAG du lab exécuté par Airflow, PYTHONPATH=/opt/airflow).
+Les modules s'importent « à plat » (`from config import ...`), exactement comme
+dans `CODE/` du cours — un seul schéma, que l'on soit dans les tests, le DAG ou
+le notebook. Le dossier `airflow/src` est posé sur `PYTHONPATH` dans le compose.
 
 Les valeurs sont lues depuis l'environnement à l'instanciation (variables injectées
 par docker-compose, ou .env en local). Pour un usage hors Docker depuis la machine
 hôte, définir `MINIO_ENDPOINT=http://localhost:9000`.
 """
+
 from __future__ import annotations
 
 import os
@@ -30,7 +31,7 @@ class MinIOConfig:
     bucket: str
 
     @classmethod
-    def from_env(cls) -> "MinIOConfig":
+    def from_env(cls) -> MinIOConfig:
         """Construit la config depuis l'environnement.
 
         Le défaut d'endpoint est `http://minio:9000` (réseau Docker du lab). Pour un

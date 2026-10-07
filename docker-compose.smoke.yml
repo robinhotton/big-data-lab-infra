@@ -1,0 +1,18 @@
+# Override utilisé par `scripts/smoke-test.sh` uniquement.
+#
+# Objectif : faire tourner la stack en **isolé**, sans perturber un lab
+# déjà lancé sur le même poste. Deux différences avec la stack de formation :
+#
+#   1. aucun port n'est publié sur l'hôte → pas de conflit avec un lab en
+#      cours d'utilisation sur 9000 / 9001 / 8080 ;
+#   2. le réseau devient interne au projet → DNS et isolation totale.
+#
+# Les checks de santé se font depuis l'intérieur des conteneurs, pas via
+# `localhost` : c'est aussi ce qui permet à la CI et au lab de coexister.
+services:
+  minio:
+    ports: !reset []
+  airflow-webserver:
+    ports: !reset []
+  postgres:
+    ports: !reset []

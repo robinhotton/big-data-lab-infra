@@ -3,10 +3,10 @@
 Alignés sur CODE/config.py du cours et la nouvelle version Python pur du lab
 (dataclass MinIOConfig frozen + from_env()), sans pandas ni pyarrow.
 """
+
 from __future__ import annotations
 
 import pytest
-
 from config import MinIOConfig
 
 MONKEYPATCH_VARS = ("MINIO_ENDPOINT", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_BUCKET")

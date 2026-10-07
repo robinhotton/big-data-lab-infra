@@ -1,3 +1,20 @@
 # Force les scripts shell en LF dans la working copy, même sous Windows
 # (core.autocrlf=true convertit sinon en CRLF → busybox ash échoue sur "set -eu\r").
 *.sh   text eol=lf
+# YAML / Python : LF aussi, pour que la CI Linux et les hooks ne voient
+# jamais de \r parasites (surtout dans .github/workflows/).
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.py   text eol=lf
+
+# ── Distribution apprenants ──────────────────────────────────────────────
+# `git archive` (et donc le zip publié par .github/workflows/release.yml)
+# n'inclut pas ces chemins : l'apprenant reçoit la stack à démarrer, pas
+# l'outillage du mainteneur. Ce qui reste visible dans le dépôt lui est
+# exclu du zip.
+.github/                 export-ignore
+tests/                   export-ignore
+docs/                    export-ignore
+pyproject.toml           export-ignore
+scripts/smoke-test.sh    export-ignore
+scripts/stack-status.sh  export-ignore

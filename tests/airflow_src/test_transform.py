@@ -4,6 +4,7 @@ Alignés sur `CODE/transform.py` du cours et la nouvelle version lab. Couvre le
 contrat de l'exo8 (deduplicate, compute_total_price, filter_valid_status,
 validate_event) et l'idempotence du pipeline.
 """
+
 from __future__ import annotations
 
 from transform import (
@@ -28,6 +29,7 @@ def _event(event_id, status="completed", quantity=2, price=10.0):
 
 
 # --- deduplicate : garde le dernier event de chaque cle (idempotent) ---
+
 
 def test_deduplicate_keeps_last_event():
     events = [
@@ -55,12 +57,14 @@ def test_idempotence_two_runs_same_result():
 
 # --- compute_total_price ---
 
+
 def test_compute_total_price():
     assert compute_total_price({"quantity": 3, "price": 9.99}) == 29.97
     assert compute_total_price({"quantity": 1, "price": 0}) == 0.0
 
 
 # --- filter_valid_status ---
+
 
 def test_filter_valid_status_keeps_only_allowed():
     events = [
@@ -76,6 +80,7 @@ def test_filter_valid_status_keeps_only_allowed():
 
 
 # --- validate_event : contrat de donnees ---
+
 
 def test_validate_event_ok():
     ok, reason = validate_event(_event("x1"))
@@ -102,6 +107,7 @@ def test_validate_event_bad_status_rejected():
 
 
 # --- transform_silver : pipeline complet valide/dedup/total_price ---
+
 
 def test_transform_silver_splits_valid_and_invalid():
     events = [

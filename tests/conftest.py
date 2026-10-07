@@ -10,6 +10,7 @@ Usage :
     pytest tests/airflow_src/    # uniquement les tests du métier
     pytest -k transform          # filtre par nom
 """
+
 from __future__ import annotations
 
 import os

@@ -1,3 +1,16 @@
+# Nom de projet fixé : garde les noms de conteneurs stables (lab-minio, …)
+# et permet au smoke test (`-p lab-smoke`) de tourner en parallèle.
+name: lab
+
+# Rotation des logs Docker — sans elle, le driver json-file écrit sans limite
+# et finit par remplir le disque (dette visible après quelques semaines de lab).
+# Chaque service garde 3 fichiers de 10 Mo max : 30 Mo max par service.
+x-logging: &docker-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 # Bloc de configuration commun aux 3 services Airflow
 x-airflow-common: &airflow-common
   image: apache/airflow:2.9.3
@@ -13,10 +26,9 @@ x-airflow-common: &airflow-common
     # On filtre uniquement SyntaxWarning — les autres warnings (Deprecation, etc.)
     # restent visibles pour signaler de vrais problèmes dans notre code.
     PYTHONWARNINGS: "ignore::SyntaxWarning"
-    # `/opt/airflow` permet `from src.config import ...` (DAG lab).
-    # `/opt/airflow/src` permet `from config import ...` (même code importé « à plat »,
-    # aligné sur CODE/ du cours et l'exo8 — les deux contextes tournent le même fichier).
-    PYTHONPATH: /opt/airflow:/opt/airflow/src
+    # Modules métier importés « à plat » (`from config import ...`) — même schéma
+    # que CODE/ du cours, l'exo8 et tests/. Une seule entrée : plus de préfixe `src.`.
+    PYTHONPATH: /opt/airflow/src
     # --- Connexion MinIO lue par airflow/src/config.py ---
     MINIO_ENDPOINT: http://minio:9000
     MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?voir .env.example}
@@ -44,6 +56,7 @@ x-airflow-common: &airflow-common
     # ne matche pas l'UID du dossier hôte (notamment sur Linux natif).
     - airflow_data:/opt/airflow/data
     - airflow_logs:/opt/airflow/logs
+  logging: *docker-logging
   depends_on:
     postgres:
       condition: service_healthy
@@ -59,8 +72,9 @@ services:
   # pour la migration prévue vers pgsty/silo (ligne maintenue) en V2/V3.
   minio:
     image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
-    container_name: lab-minio
+    container_name: ${COMPOSE_PROJECT_NAME:-lab}-minio
     restart: unless-stopped
+    logging: *docker-logging
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -85,7 +99,7 @@ services:
     # Client `mc` du même fork — conserve `/bin/sh`, `mc` et la CLI voulus par
     # scripts/minio-init.sh (alias, mb, encrypt, ilm).
     image: pgsty/mc:RELEASE.2026-08-04T00-00-00Z
-    container_name: lab-minio-init
+    container_name: ${COMPOSE_PROJECT_NAME:-lab}-minio-init
     depends_on:
       minio:
         condition: service_healthy
@@ -95,6 +109,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?voir .env.example}
     volumes:
       - ./scripts:/scripts:ro
+    logging: *docker-logging
     networks:
       - lab-net
 
@@ -103,7 +118,7 @@ services:
   # Désactivé ce profil pour démarrer la stack sans charger les données.
   datasets-init:
     image: python:3.11.10-slim
-    container_name: lab-datasets-init
+    container_name: ${COMPOSE_PROJECT_NAME:-lab}-datasets-init
     profiles: ["datasets"]
     depends_on:
       minio-init:
@@ -119,6 +134,7 @@ services:
       - ./setup_datasets.py:/app/setup_datasets.py:ro
       - ./scripts:/scripts:ro
     working_dir: /app
+    logging: *docker-logging
     networks:
       - lab-net
 
@@ -127,8 +143,9 @@ services:
   # Base de données interne Airflow
   postgres:
     image: postgres:16.4-alpine
-    container_name: lab-postgres
+    container_name: ${COMPOSE_PROJECT_NAME:-lab}-postgres
     restart: unless-stopped
+    logging: *docker-logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?voir .env.example}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?voir .env.example}
@@ -146,7 +163,7 @@ services:
   # Initialise la base Airflow et crée l'utilisateur admin (one-shot)
   airflow-init:
     <<: *airflow-common
-    container_name: lab-airflow-init
+    container_name: ${COMPOSE_PROJECT_NAME:-lab}-airflow-init
     restart: on-failure
     # Tourne en root pour pouvoir chown le volume airflow_data (root au départ)
     # vers l'UID airflow (50000) — webserver/scheduler tournent sous 50000.
@@ -163,7 +180,7 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
       PYTHONWARNINGS: "ignore::SyntaxWarning"
-      PYTHONPATH: /opt/airflow:/opt/airflow/src
+      PYTHONPATH: /opt/airflow/src
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?voir .env.example}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?voir .env.example}
@@ -177,7 +194,7 @@ services:
 
   airflow-webserver:
     <<: *airflow-common
-    container_name: lab-airflow-webserver
+    container_name: ${COMPOSE_PROJECT_NAME:-lab}-airflow-webserver
     networks:
       - lab-net
     ports:
@@ -194,7 +211,7 @@ services:
 
   airflow-scheduler:
     <<: *airflow-common
-    container_name: lab-airflow-scheduler
+    container_name: ${COMPOSE_PROJECT_NAME:-lab}-airflow-scheduler
     networks:
       - lab-net
     command: scheduler
@@ -211,8 +228,10 @@ networks:
   # Réseau nommé explicitement — indépendant du nom du dossier parent
   # (sinon Docker nomme "<dossier>_default", ce qui casse les références
   # `docker run --network` après un renommage du dépôt).
+  # Scopé par projet Compose : le smoke test (`-p lab-smoke`) et le lab
+  # (`-p lab`, défaut) coexistent sans conflit DNS sur le réseau.
   lab-net:
-    name: lab-net
+    name: ${COMPOSE_PROJECT_NAME:-lab}-net
 
 volumes:
   minio_data:

@@ -1,6 +1,6 @@
 """extract.py — Bronze : lire les JSON orders de MinIO (Python pur, sans pandas).
 
-Version *lab* de `CODE/extract.py` du cours (cours-big-data-local-2j). Mêmes contrats :
+Version *lab* de `CODE/extract.py` du cours (cours-big-data-cloud). Mêmes contrats :
 `parse_jsonl`, `list_orders_for_date`, `extract_bronze`.
 
 Bronze = ingestion brute : on lit les fichiers JSON `raw/orders/` du jour et on
@@ -10,16 +10,40 @@ Format des fichiers : **JSON Lines** (.json), un événement par ligne — c'est
 généré par `setup_datasets.py` du lab. On lit ligne à ligne ; un `json.loads()` sur le
 fichier entier échouerait (`Extra data`).
 """
+
 from __future__ import annotations
 
 import json
+import logging
 
-from config import get_s3_client, MinIOConfig
+from config import MinIOConfig, get_s3_client
+
+logger = logging.getLogger(__name__)
 
 
 def parse_jsonl(raw: bytes) -> list[dict]:
     """Parse du JSON Lines : un objet JSON par ligne (ignore les lignes vides)."""
     return [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
+
+
+def _list_keys(s3, bucket: str, prefix: str) -> list[str]:
+    """Toutes les clés sous `prefix`, **toutes pages confondues**.
+
+    `ListObjectsV2` renvoie au plus 1000 clés par appel : sans pagination, tout
+    ce qui dépasse est silencieusement ignoré (le pipeline perd des données
+    sans erreur). On suit `ContinuationToken` jusqu'à épuisement.
+    """
+    keys: list[str] = []
+    token: str | None = None
+    while True:
+        kwargs = {"Bucket": bucket, "Prefix": prefix}
+        if token:
+            kwargs["ContinuationToken"] = token
+        resp = s3.list_objects_v2(**kwargs)
+        keys.extend(obj["Key"] for obj in resp.get("Contents", []))
+        if not resp.get("IsTruncated"):
+            return keys
+        token = resp.get("NextContinuationToken")
 
 
 def list_orders_for_date(ds: str) -> list[str]:
@@ -31,13 +55,7 @@ def list_orders_for_date(ds: str) -> list[str]:
     s3 = get_s3_client()
     year, month, _ = ds.split("-")
     prefix = f"raw/orders/{year}/{month}/"
-    resp = s3.list_objects_v2(Bucket=cfg.bucket, Prefix=prefix)
-    keys = [
-        obj["Key"]
-        for obj in resp.get("Contents", [])
-        if obj["Key"].endswith(f"orders_{ds}.json")
-    ]
-    return keys
+    return [k for k in _list_keys(s3, cfg.bucket, prefix) if k.endswith(f"orders_{ds}.json")]
 
 
 def extract_bronze(ds: str = "2026-03-01") -> list[dict]:
@@ -53,7 +71,7 @@ def extract_bronze(ds: str = "2026-03-01") -> list[dict]:
         resp = s3.get_object(Bucket=cfg.bucket, Key=key)
         events.extend(parse_jsonl(resp["Body"].read()))  # JSON Lines -> list[dict]
 
-    print(f"[Bronze] {len(events)} événement(s) lus pour {ds}")
+    logger.info("Bronze : %s événement(s) lus pour %s", len(events), ds)
     return events
 
 
