@@ -1,3 +1,8 @@
 # Force les scripts shell en LF dans la working copy, même sous Windows
 # (core.autocrlf=true convertit sinon en CRLF → busybox ash échoue sur "set -eu\r").
 *.sh   text eol=lf
+# YAML / Python : LF aussi, pour que la CI Linux et les hooks ne voient
+# jamais de \r parasites (surtout dans .github/workflows/).
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.py   text eol=lf

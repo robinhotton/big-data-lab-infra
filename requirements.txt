@@ -1,14 +1,17 @@
-# Dépendances des modules airflow/src/ et des DAGs.
-# En conteneur : installées via _PIP_ADDITIONAL_REQUIREMENTS (voir docker-compose.yml).
-# Ce fichier sert pour le lint / tests / exécution locale hors Docker.
+# Dépendances Python du lab — source de vérité unique (V2).
 #
-# Python pur (boto3 + stdlib) — aligné sur CODE/ du cours : pas de pandas ni de Spark
-# dans le code. pandas est installé PAR PRÉCAUTION (au cas où) mais jamais importé.
+# En conteneur Airflow : installées via _PIP_ADDITIONAL_REQUIREMENTS
+# (voir docker-compose.yml). Ce fichier sert au lint / tests / exécution locale.
+#
+# Python pur (boto3 + stdlib) dans airflow/src — aligné sur CODE/ du cours.
+# pandas est installé PAR PRÉCAUTION mais jamais importé par le pipeline.
 
-# Runtime (airflow/src + DAGs)
+# ── Runtime (airflow/src + DAGs + setup_datasets.py) ─────────────────────────
 boto3==1.34.162
-pandas==2.2.2  # par précaution seulement — le pipeline n'en fait pas usage
+pandas==2.2.2          # par précaution seulement — le pipeline n'en fait pas usage
+pyarrow==16.1.0        # Parquet (setup_datasets.py + tests taxi)
 
-# --- Dev (tests / lint hors Docker) ---
+# ── Dev (tests / lint hors Docker) ──────────────────────────────────────────
 pytest==8.3.2
 ruff==0.6.3
+moto[s3]==5.0.20       # mock S3 pour tester extract/load sans MinIO

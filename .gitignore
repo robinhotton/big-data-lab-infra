@@ -9,3 +9,6 @@ __pycache__/
 
 # Plans/session Claude
 .claude
+
+# Rapports de tests / CI
+reports/

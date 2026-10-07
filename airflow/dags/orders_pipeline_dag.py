@@ -24,15 +24,16 @@ from __future__ import annotations
 import sys
 from datetime import datetime, timedelta
 
-from airflow import DAG
 from airflow.operators.python import PythonOperator
+
+from airflow import DAG
 
 # Rendre les modules metier importables : ./airflow/src est monte sur /opt/airflow/src.
 sys.path.insert(0, "/opt/airflow")
 
 from src.extract import extract_bronze  # noqa: E402
-from src.transform import transform_silver  # noqa: E402
 from src.load import aggregate_gold, write_json_to_minio, write_quarantine  # noqa: E402
+from src.transform import transform_silver  # noqa: E402
 
 
 def _ds_from_context(context) -> str:

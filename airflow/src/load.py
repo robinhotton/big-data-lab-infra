@@ -14,7 +14,7 @@ from __future__ import annotations
 import collections
 import json
 
-from config import get_s3_client, MinIOConfig
+from config import MinIOConfig, get_s3_client
 from transform import transform_silver
 
 

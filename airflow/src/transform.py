@@ -13,7 +13,7 @@ Colonnes orders (dataset du lab) :
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 VALID_STATUSES = {"pending", "completed", "cancelled", "refunded"}
 
@@ -90,7 +90,7 @@ def transform_silver(events: list[dict]) -> tuple[list[dict], list[dict]]:
             invalid.append({
                 **e,
                 "_reject_reason": reason,
-                "_reject_ts": datetime.now(timezone.utc).isoformat(),
+                "_reject_ts": datetime.now(UTC).isoformat(),
             })
 
     valid = deduplicate(valid)

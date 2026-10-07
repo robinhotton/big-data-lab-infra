@@ -30,7 +30,7 @@ class MinIOConfig:
     bucket: str
 
     @classmethod
-    def from_env(cls) -> "MinIOConfig":
+    def from_env(cls) -> MinIOConfig:
         """Construit la config depuis l'environnement.
 
         Le défaut d'endpoint est `http://minio:9000` (réseau Docker du lab). Pour un

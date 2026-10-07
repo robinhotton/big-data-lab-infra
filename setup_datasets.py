@@ -40,7 +40,6 @@ from datetime import datetime, timedelta
 import boto3
 from botocore.exceptions import ClientError
 
-
 # ── Données de référence ──────────────────────────────────────────────────────
 
 # Orders (TP3)
@@ -72,7 +71,10 @@ TAXI_FULL_URL = (
 # ── TP1 — CSV transactions ────────────────────────────────────────────────────
 
 def generate_csv_transactions(n_rows: int, date_str: str, file_num: int) -> bytes:
-    """Génère un CSV transactions pour une date donnée (colonnes : id, date, region, amount, status, payment_method)."""
+    """Genere un CSV transactions pour une date donnee.
+
+    Colonnes : id, date, region, amount, status, payment_method.
+    """
     rng = random.Random(42 + file_num)
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -90,11 +92,16 @@ def generate_csv_transactions(n_rows: int, date_str: str, file_num: int) -> byte
 
 
 def generate_csv_weather(n_days: int = 365) -> bytes:
-    """Génère un CSV météo journalier (colonnes : date, station, temperature_c, rainfall_mm, wind_kmh, condition)."""
+    """Genere un CSV meteo journalier.
+
+    Colonnes : date, station, temperature_c, rainfall_mm, wind_kmh, condition.
+    """
     rng = random.Random(42)
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["date", "station", "temperature_c", "rainfall_mm", "wind_kmh", "condition"])
+    writer.writerow(
+        ["date", "station", "temperature_c", "rainfall_mm", "wind_kmh", "condition"]
+    )
     base_date = datetime(2025, 1, 1)
     for day in range(n_days):
         current_date = (base_date + timedelta(days=day)).strftime("%Y-%m-%d")
@@ -110,7 +117,9 @@ def generate_csv_weather(n_days: int = 365) -> bytes:
     return buf.getvalue().encode("utf-8")
 
 
-def upload_csv_transactions(s3, bucket: str, n_files: int = 8, rows_per_file: int = 500_000) -> None:
+def upload_csv_transactions(
+    s3, bucket: str, n_files: int = 8, rows_per_file: int = 500_000
+) -> None:
     total_rows = 0
     total_bytes = 0
     for i in range(1, n_files + 1):
@@ -120,7 +129,11 @@ def upload_csv_transactions(s3, bucket: str, n_files: int = 8, rows_per_file: in
         s3.put_object(Bucket=bucket, Key=key, Body=data, ContentType="text/csv")
         total_rows += rows_per_file
         total_bytes += len(data)
-    print(f"    ✓ raw/sales/year=2026/month=03/  ({n_files} fichiers × {rows_per_file:,} lignes = {total_bytes / 1024 / 1024:.0f} Mo)")
+    mo = total_bytes / 1024 / 1024
+    print(
+        f"    ✓ raw/sales/year=2026/month=03/  ({n_files} fichiers × "
+        f"{rows_per_file:,} lignes = {mo:.0f} Mo)"
+    )
 
 
 def upload_csv_weather(s3, bucket: str) -> None:
@@ -136,8 +149,8 @@ def generate_taxi_parquet(n: int = 130_000) -> bytes:
     """Génère un Parquet taxi synthétique avec le schéma NYC TLC."""
     try:
         import pandas as pd
-    except ImportError:
-        raise SystemExit("pandas requis : pip install pandas pyarrow")
+    except ImportError as exc:
+        raise SystemExit("pandas requis : pip install pandas pyarrow") from exc
 
     rng = random.Random(42)
     base = datetime(2023, 1, 1)
@@ -171,7 +184,7 @@ def upload_taxi(s3, bucket: str, data: bytes) -> None:
 def download_taxi_full() -> bytes:
     """Télécharge le Parquet NYC Taxi 2023-01 depuis le site NYC TLC (~45 Mo, ~3M lignes)."""
     import urllib.request
-    print(f"  Téléchargement NYC Taxi full dataset (~45 Mo)...")
+    print("  Téléchargement NYC Taxi full dataset (~45 Mo)...")
     print(f"  URL : {TAXI_FULL_URL}")
     try:
         with urllib.request.urlopen(TAXI_FULL_URL, timeout=180) as resp:
@@ -187,7 +200,9 @@ def download_taxi_full() -> bytes:
                 downloaded += len(chunk)
                 if total:
                     pct = downloaded / total * 100
-                    print(f"    {downloaded / 1024 / 1024:.1f} / {total / 1024 / 1024:.1f} Mo  ({pct:.0f}%)", end="\r")
+                    done = downloaded / 1024 / 1024
+                    tot = total / 1024 / 1024
+                    print(f"    {done:.1f} / {tot:.1f} Mo  ({pct:.0f}%)", end="\r")
         print(f"\n  → {len(data) / 1024 / 1024:.1f} Mo téléchargés.")
         return data
     except Exception as exc:
@@ -246,7 +261,10 @@ def upload_orders(s3, bucket: str, nb_events: int = 200,
             uploaded += 1
         except Exception as e:
             print(f"    ✗ Erreur jour {day_num:02d} : {e}")
-    print(f"    ✓ raw/orders/{year}/{month:02d}/  ({uploaded}/{days} fichiers × {nb_events} événements)")
+    print(
+        f"    ✓ raw/orders/{year}/{month:02d}/  "
+        f"({uploaded}/{days} fichiers × {nb_events} evenements)"
+    )
 
 
 # ── Utilitaires ───────────────────────────────────────────────────────────────
@@ -304,7 +322,7 @@ def main() -> None:
         aws_secret_access_key=args.secret_key,
     )
 
-    print(f"\n=== Setup datasets formation ===")
+    print("\n=== Setup datasets formation ===")
     print(f"Endpoint  : {args.endpoint}")
     print(f"Bucket    : {args.bucket}")
     print(f"Datasets  : "
@@ -336,9 +354,9 @@ def main() -> None:
     print(f"[{bucket}]")
     try:
         s3.head_bucket(Bucket=bucket)
-    except ClientError:
+    except ClientError as exc:
         print(f"  Bucket {bucket} introuvable — vérifiez que minio-init s'est exécuté.")
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
 
     if not args.skip_csv:
         upload_csv_transactions(s3, bucket, n_files=8, rows_per_file=args.csv_rows)

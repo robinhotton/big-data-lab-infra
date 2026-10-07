@@ -14,16 +14,27 @@ durcissement sur branche dédiée, **V3** = migration de ligne de support MinIO.
 | Version | Objet | Branche | Statut |
 | --- | --- | --- | --- |
 | **V1** | Fix images (`pgsty/minio`) + audit + roadmap | `main` + tag | ✅ fait |
-| **V2** | CI, tests, durcissement, montée Airflow 2.x | `v2/hardening` | ⏳ à faire |
-| **V3** | Migration `pgsty/minio` → `pgsty/silo`, mise à jour des supports | `v3/silo` | ⏳ à faire |
+| **V2** | CI, tests, durcissement | `v2/hardening` | ✅ fait (voir §V2) |
+| **V3** | Migration `pgsty/minio` → `pgsty/silo`, Airflow 2.x, mise à jour des supports | `v3/silo` | ⏳ à faire |
 
 ---
 
 ## V2 — branche `v2/hardening` (à rabattre sur `main`)
 
+**Livré en V2** :
+- CI GitHub Actions (lint + pytest + smoke test) — ✅
+- Tests `extract` / `load` / contrat des DAGs — ✅
+- **Fix pagination S3** (`ListObjectsV2` plafonné à 1000 clés, A2) — ✅
+- Smoke test isolé, rejouable en local sans perturber un lab lancé — ✅
+- Lint repo vert (ruff : 24 erreurs → 0) — ✅
+- Dépendances de test réunies dans `requirements.txt` (moto, pyarrow) — ✅
+
+**Partiel / à finir** : fail-fast sur les secrets dans `config.py` (A7), lifecycle idempotente dans `minio-init.sh` (A8), alignement doc XCom/Parquet (A10).
+**Reporté en V3** : Airflow 2.x (A11), moins de privilège MinIO (A3/A4), image Airflow custom (A5), pin par digest (V2.3).
+
 Chaque item est indépendant et découple en commit séparé.
 
-### V2.1 — CI GitHub Actions *(le plus prioritaire)*
+### V2.1 — CI GitHub Actions ✅ fait *(le plus prioritaire)*
 
 **Problème.** Aucune vérification automatique : une image a disparu et personne
 ne s'en est aperçu avant un TP. (audit A6)
@@ -56,7 +67,7 @@ Job `compose-smoke` (le cœur) :
 `docker pull` des images pinées et ouvre une issue si une image a disparu.
 C'est exactement le panneau qu'on aurait voulu avoir.
 
-### V2.2 — Tests manquants *(audit A2)*
+### V2.2 — Tests manquants ✅ fait *(audit A2)*
 
 **Problème.** Seuls `config` et `transform` sont testés. `extract` et `load` —
 qui touchent réellement MinIO — ne le sont pas. La pagination manquante
@@ -75,12 +86,18 @@ Deps à ajouter aux dev deps : `moto[s3]`, `pyarrow`.
 
 **Effort.** 1 j. **Risque.** Faible.
 
-### V2.3 — Pin par digest des images
+### V2.3 — Pin par digest des images — ⏸ différé (choix assumé)
 
 **Problème.** Un tag `RELEASE.*` peut être re-publié ou retiré ; un digest ne
 change jamais.
 
-**Mise en œuvre** :
+**Pourquoi ce n'est pas fait en V2.** Le lab est **pédagogique** : un
+`image: pgsty/minio@sha256:b6bfe7…` dans `docker-compose.yml` est illisible pour
+un apprenant, et le cours copie ces lignes dans les annexes. Le risque réel
+(une image qui disparaît) est déjà couvert par le job **cron mensuel** de la CI
+qui tente un `docker pull` de chaque image pinée et alerte sur la regression.
+
+**Mise en œuvre si besoin** (hors formation, ou lab de production) :
 ```yaml
 image: pgsty/minio@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
 ```
@@ -89,7 +106,7 @@ avec le tag en commentaire pour la lisibilité. Idem pour `pgsty/mc`, `postgres`
 
 **Effort.** 0,25 j. **Risque.** Faible, mais à réviser à chaque upgrade.
 
-### V2.4 — Montée Airflow 2.x *(audit A11)*
+### V2.4 — Montée Airflow 2.x ⏳ V3 *(audit A11)*
 
 **Problème.** Ligne 2.9 (2024), CVE connues.
 
@@ -103,7 +120,7 @@ du cours et les TP). Vérifier spécifiquement :
 changement qui a le plus de chances de casser un TP, d'où le fait qu'il soit
 en V2 et pas dans le fix V1.
 
-### V2.5 — Moins de privilège MinIO *(audit A3, A4)*
+### V2.5 — Moins de privilège MinIO ⏳ V3 *(audit A3, A4)*
 
 **Problème.** Airflow utilise le compte **root** MinIO, et tout est exposé sur
 `0.0.0.0`.
@@ -119,7 +136,7 @@ en V2 et pas dans le fix V1.
 **Effort.** 0,5 j. **Risque.** Moyen — vérifier que le remote logging et le
 `S3Hook` fonctionnent avec une policy non-root.
 
-### V2.6 — Image Airflow custom *(audit A5)*
+### V2.6 — Image Airflow custom ⏳ V3 *(audit A5)*
 
 **Problème.** `_PIP_ADDITIONAL_REQUIREMENTS` installe à chaque démarrage :
 latence, dépendance réseau, reproducibilité fragile.
@@ -136,7 +153,7 @@ et `_PIP_ADDITIONAL_REQUIREMENTS: ""` dans le compose.
 décider si ça vaut le coup pour un lab (le gain de 30-60 s par apprenant est
 réel en salle).
 
-### V2.7 — Nettoyage du code métier *(audit A7, A8, A9)*
+### V2.7 — Nettoyage du code métier ◐ partiel *(audit A7, A8, A9)*
 
 - `config.py` : **fail-fast** si `MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY` absentes
   (supprimer les defaults de lab) — le lab continue de passer par le compose
@@ -147,7 +164,7 @@ réel en salle).
 
 **Effort.** 0,5 j. **Risque.** Faible.
 
-### V2.8 — Relecture doc *(audit A10)*
+### V2.8 — Relecture doc ◐ partiel *(audit A10)*
 
 - README : aligner la description du passage de données (XCom, pas staging
   Parquet) sur le code réel
