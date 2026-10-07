@@ -29,9 +29,9 @@ jobs:
         run: |
           z="big-data-lab-${GITHUB_REF_NAME}.zip"
           echo "▶ Vérification que le zip reste « apprenant » :"
-          if unzip -l "$z" | grep -qE '(^| )(tests/|\.github/|docs/|pyproject\.toml|smoke-test\.sh|stack-status\.sh)'; then
+          if unzip -l "$z" | grep -qE '(^| )(tests/|\.github/|docs/|pyproject\.toml|\.gitattributes|docker-compose\.smoke\.yml|smoke-test\.sh|stack-status\.sh)'; then
             echo "✗ fuites mainteneur détectées dans le zip :"
-            unzip -l "$z" | grep -E '(^| )(tests/|\.github/|docs/|pyproject\.toml|smoke-test\.sh|stack-status\.sh)'
+            unzip -l "$z" | grep -E '(^| )(tests/|\.github/|docs/|pyproject\.toml|\.gitattributes|docker-compose\.smoke\.yml|smoke-test\.sh|stack-status\.sh)'
             echo "→ vérifier les règles export-ignore de .gitattributes"
             exit 1
           fi
