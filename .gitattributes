@@ -16,5 +16,7 @@
 tests/                   export-ignore
 docs/                    export-ignore
 pyproject.toml           export-ignore
+.gitattributes           export-ignore
+docker-compose.smoke.yml export-ignore
 scripts/smoke-test.sh    export-ignore
 scripts/stack-status.sh  export-ignore

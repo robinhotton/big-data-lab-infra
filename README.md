@@ -392,9 +392,9 @@ docker compose restart airflow-webserver
 ```text
 big-data-lab-infra/
 ├── docker-compose.yml       ← services (MinIO + Postgres + Airflow)
-├── docker-compose.smoke.yml ← overlay interne (ports dépubliés)
 ├── .env.example             ← template de configuration (10 variables)
 ├── .env                     ← votre config locale (gitignored)
+├── .gitignore               ← empêche de committer .env
 ├── setup_datasets.py        ← seed des datasets (RNG seedé)
 ├── requirements.txt         ← dépendances Python
 ├── README.md                ← ce document

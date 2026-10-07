@@ -140,10 +140,11 @@ l'outillage de vérification :
 ```text
 big-data-lab-infra/
 ├── README.md                     ← doc d'utilisation (dans le zip apprenant)
-├── docker-compose.yml
-├── docker-compose.smoke.yml      ← overlay smoke : ports dépubliés
+├── docker-compose.yml            ← services
+├── docker-compose.smoke.yml      ← [mainteneur] overlay smoke : ports dépubliés
 ├── .env.example                  ← template de configuration (10 variables)
-├── .gitattributes                ← règles export-ignore du zip apprenant
+├── .gitignore                    ← dans le zip : protège .env de l'apprenant
+├── .gitattributes                ← [mainteneur] règles export-ignore
 ├── setup_datasets.py             ← seed programmatique (RNG seedé)
 ├── requirements.txt              ← runtime + dev (pytest, ruff, mypy, moto)
 ├── airflow/
@@ -171,4 +172,5 @@ big-data-lab-infra/
 
 Les chemins marqués `[mainteneur]` figurent en `export-ignore` dans
 `.gitattributes` : `git archive` — et donc le zip publié à chaque tag — les
-exclut.
+exclut. Seul `.gitignore` fait exception et reste dans le zip : c'est lui qui
+empêche un apprenant de committer son `.env` (credentials réels).
