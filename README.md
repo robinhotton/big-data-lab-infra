@@ -283,11 +283,17 @@ airflow/
     └── load.py                     ← Gold : agrégation CA → MinIO (idempotent)
 ```
 
-Le DAG n'est qu'une **fine couche d'orchestration** : `from src import extract, transform, load`. Les tâches communiquent via **staging Parquet** (volume `airflow_data`, monté en `/opt/airflow/data`) plutôt que par XCom — adapté aux volumes pandas.
+Le DAG n'est qu'une **fine couche d'orchestration** : il appelle les modules métier
+(`from extract import ...`, `from load import ...`) sans dupliquer de logique. Les
+tâches communiquent via **XCom** (200 events/jour — volume léger, pas de staging
+fichier). Un DAG qui passerait ses données par variable globale ne fonctionnerait pas
+en LocalExecutor : chaque tâche tourne dans un processus séparé.
 
 > **Pourquoi `src/` ?** Le code métier est testable indépendamment d'Airflow :
-> `python -m airflow.src.extract` fonctionne hors conteneur. C'est la bonne pratique
-> (séparation orchestration / métier), utile à montrer en TP3.
+> `python airflow/src/extract.py` fonctionne hors conteneur (il ne manque que
+> l'endpoint MinIO — passer `MINIO_ENDPOINT=http://localhost:9000`). C'est la bonne
+> pratique (séparation orchestration / métier), utile à montrer en TP3. Les imports
+> sont « à plat » (`from config import ...`), comme dans `CODE/` du cours.
 
 ### Deux façons d'accéder à MinIO depuis un DAG
 

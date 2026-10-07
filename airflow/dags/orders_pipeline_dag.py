@@ -5,7 +5,8 @@ orchestre les modules metier alignes dans `airflow/src/` (`config`, `extract`,
 `transform`, `load`), en Python pur (boto3 + stdlib), sans pandas ni Spark.
 
 Le code metier vit dans `airflow/src/` et reste testable hors Airflow. Ce DAG n'est
-qu'une fine couche d'orchestration : il appelle `src/` et ne duplique aucune logique.
+qu'une fine couche d'orchestration : il appelle les modules metier et ne duplique
+aucune logique.
 
 Passage de donnees entre taches : via **XCom** (200 events/jour, volume leger — pas
 de staging Parquet). Un DAG qui stocke sa donnee intermediaire dans une variable
@@ -16,8 +17,8 @@ Les invalides de Silver partent en `quarantine/`, les agregats Gold en
 `curated/ca_by_status_{ds}.json` (ecriture idempotente, cle datee -> re-run ecrase).
 
 Deploiement : `big-data-lab-infra/airflow/dags/` (monte sur `/opt/airflow/dags`).
-Modules metier dans `airflow/src/` (monte `/opt/airflow/src`, PYTHONPATH inclut
-`/opt/airflow` et `/opt/airflow/src` — cf. docker-compose).
+Modules metier dans `airflow/src/` (monte `/opt/airflow/src`). Imports « a plat »
+(`from config import ...`), meme schema que CODE/ du cours et que tests/.
 """
 from __future__ import annotations
 
@@ -29,11 +30,12 @@ from airflow.operators.python import PythonOperator
 from airflow import DAG
 
 # Rendre les modules metier importables : ./airflow/src est monte sur /opt/airflow/src.
-sys.path.insert(0, "/opt/airflow")
+# Meme schema d'import que CODE/ du cours et tests/ : « a plat », sans prefixe src.
+sys.path.insert(0, "/opt/airflow/src")
 
-from src.extract import extract_bronze  # noqa: E402
-from src.load import aggregate_gold, write_json_to_minio, write_quarantine  # noqa: E402
-from src.transform import transform_silver  # noqa: E402
+from extract import extract_bronze  # noqa: E402
+from load import aggregate_gold, write_json_to_minio, write_quarantine  # noqa: E402
+from transform import transform_silver  # noqa: E402
 
 
 def _ds_from_context(context) -> str:

@@ -63,9 +63,9 @@ def test_dag_imports_with_airflow_if_available(path: Path, monkeypatch):
     import importlib.util
     import sys
 
-    # Le DAG fait `from src...` après sys.path.insert("/opt/airflow") :
+    # Le DAG fait `from config/extract/...` après sys.path.insert("/opt/airflow/src") :
     # on reproduit le montage du compose pour l'import hors conteneur.
-    src_dir = str(DAGS_DIR.parent)  # airflow/
+    src_dir = str(DAGS_DIR.parent / "src")  # airflow/src
     monkeypatch.syspath_prepend(src_dir)
 
     spec = importlib.util.spec_from_file_location(path.stem, path)
